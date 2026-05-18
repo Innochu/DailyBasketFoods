@@ -1,0 +1,501 @@
+.navigation {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.nav-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.nav-menu {
+  display: flex;
+  list-style: none;
+  gap: 32px;
+  padding: 0;
+  margin: 0;
+}
+
+.nav-menu a {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.nav-menu a:hover {
+  color: var(--green);
+}
+
+.app-shell {
+  padding: 40px 24px 56px;
+}
+
+.hero-section,
+.content-grid,
+.mode-grid,
+.product-grid,
+.journey-steps,
+.details-grid {
+  display: grid;
+  gap: 24px;
+}
+
+.hero-section {
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+  align-items: stretch;
+  margin-bottom: 32px;
+}
+
+.hero-copy,
+.brand-card,
+.mode-card,
+.product-card,
+.journey-steps article,
+.tip-card,
+.cart-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: var(--shadow-soft);
+}
+
+.hero-copy {
+  padding: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(96, 125, 65, 0.18), transparent 36%),
+    linear-gradient(135deg, rgba(249, 242, 229, 0.96), rgba(255, 252, 245, 0.96));
+}
+
+.eyebrow,
+.section-tag,
+.product-topline span,
+.price-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+
+.hero-text {
+  max-width: 640px;
+  font-size: 1.05rem;
+}
+
+.promise-row,
+.hero-actions,
+.message-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.promise-row {
+  margin: 24px 0;
+}
+
+.promise-row span,
+.message-strip span {
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: var(--pill);
+  color: var(--brown-deep);
+  font-weight: 600;
+}
+
+.hero-actions a,
+.product-footer button,
+.submit-button,
+.cart-actions button {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.primary-link,
+.secondary-link,
+.product-footer button,
+.submit-button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 999px;
+  text-decoration: none;
+  font-weight: 700;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.primary-link,
+.product-footer button,
+.submit-button {
+  background: var(--green);
+  color: var(--cream);
+  box-shadow: 0 14px 28px rgba(96, 125, 65, 0.2);
+}
+
+.secondary-link {
+  color: var(--brown-deep);
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.primary-link:hover,
+.secondary-link:hover,
+.product-footer button:hover,
+.submit-button:hover {
+  transform: translateY(-1px);
+}
+
+.brand-card {
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.brand-mark {
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--cream);
+  background: linear-gradient(135deg, var(--green), var(--brown));
+}
+
+.sticker-preview {
+  padding: 18px;
+  border-radius: 18px;
+  background: var(--sticker);
+  border: 1px dashed rgba(90, 66, 39, 0.4);
+}
+
+.sticker-preview p + p {
+  margin-top: 10px;
+}
+
+.brand-note {
+  color: var(--text-soft);
+}
+
+.section-heading {
+  margin-bottom: 20px;
+}
+
+.section-heading.compact {
+  margin-bottom: 16px;
+}
+
+.mode-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 32px;
+}
+
+.mode-card {
+  text-align: left;
+  padding: 22px;
+  color: var(--text-main);
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.mode-card strong,
+.product-card h3,
+.journey-steps h3,
+.tip-card h3,
+.cart-item strong {
+  display: block;
+  color: var(--brown-deep);
+}
+
+.mode-card span {
+  display: block;
+  margin-top: 12px;
+  color: var(--text-soft);
+}
+
+.mode-card.active,
+.mode-card:hover {
+  border-color: rgba(96, 125, 65, 0.4);
+  background: rgba(96, 125, 65, 0.06);
+  transform: translateY(-2px);
+}
+
+.content-grid {
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.85fr);
+  align-items: start;
+}
+
+.main-column section + section {
+  margin-top: 32px;
+}
+
+.product-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.product-card {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.product-topline,
+.product-footer,
+.charge-box div,
+.cart-item,
+.cart-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.product-topline strong {
+  font-size: 0.9rem;
+  color: var(--brown);
+}
+
+.product-footer {
+  margin-top: auto;
+}
+
+.product-footer strong {
+  display: block;
+  color: var(--brown-deep);
+  font-size: 1.15rem;
+}
+
+.journey-steps {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.journey-steps article,
+.tip-card {
+  padding: 24px;
+}
+
+.journey-steps article span {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  margin-bottom: 16px;
+  font-weight: 800;
+  color: var(--cream);
+  background: var(--brown);
+}
+
+.details-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tip-card ul {
+  margin: 16px 0 0;
+  padding-left: 18px;
+  color: var(--text-soft);
+}
+
+.tip-card li + li {
+  margin-top: 10px;
+}
+
+.message-strip {
+  margin-top: 20px;
+}
+
+.sidebar-column {
+  position: sticky;
+  top: 18px;
+}
+
+.cart-panel {
+  padding: 24px;
+}
+
+.empty-state {
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(96, 125, 65, 0.08);
+  color: var(--text-soft);
+}
+
+.cart-list {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.cart-item {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.cart-item span,
+.charge-box span {
+  color: var(--text-soft);
+  font-size: 0.94rem;
+}
+
+.cart-actions button {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: var(--brown-deep);
+  background: var(--pill);
+}
+
+.cart-actions span {
+  min-width: 12px;
+  text-align: center;
+  color: var(--brown-deep);
+  font-weight: 700;
+}
+
+.order-form {
+  display: grid;
+  gap: 16px;
+}
+
+.order-form label {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--brown-deep);
+}
+
+.order-form input,
+.order-form select,
+.order-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 16px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.88);
+  padding: 14px 16px;
+  font: inherit;
+  color: var(--text-main);
+}
+
+.order-form input:focus,
+.order-form select:focus,
+.order-form textarea:focus {
+  outline: 2px solid rgba(96, 125, 65, 0.18);
+  border-color: var(--green);
+}
+
+.charge-box {
+  padding: 18px;
+  border-radius: 18px;
+  background: var(--sticker);
+  display: grid;
+  gap: 12px;
+}
+
+.charge-box strong {
+  color: var(--brown-deep);
+}
+
+.submit-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+}
+
+.success-box {
+  margin-top: 16px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(96, 125, 65, 0.1);
+  color: var(--brown-deep);
+}
+
+.success-box strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 1080px) {
+  .hero-section,
+  .content-grid,
+  .mode-grid,
+  .product-grid,
+  .journey-steps,
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar-column {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 20px 14px 40px;
+  }
+
+  .hero-copy,
+  .brand-card,
+  .mode-card,
+  .product-card,
+  .journey-steps article,
+  .tip-card,
+  .cart-panel {
+    padding: 20px;
+    border-radius: 20px;
+  }
+
+  .hero-actions,
+  .product-topline,
+  .product-footer,
+  .charge-box div {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .primary-link,
+  .secondary-link,
+  .product-footer button,
+  .submit-button {
+    width: 100%;
+  }
+
+  .cart-item {
+    align-items: flex-start;
+  }
+}
