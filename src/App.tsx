@@ -3,8 +3,9 @@ import './App.css'
 import { Navigation } from './components/Navigation'
 import { Home } from './pages/Home'
 import { Shop } from './pages/Shop'
+import { Errand } from './pages/Errand'
 import { Journey } from './pages/Journey'
-import { Standards } from './pages/Standards'
+// import { Standards } from './pages/Standards'
 
 function App() {
   return (
@@ -13,8 +14,9 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/shop" element={<Shop />} />
+        <Route path="/errand" element={<Errand />} />
         <Route path="/journey" element={<Journey />} />
-        <Route path="/standards" element={<Standards />} />
+        {/* <Route path="/standards" element={<Standards />} /> */}
       </Routes>
     </Router>
   )

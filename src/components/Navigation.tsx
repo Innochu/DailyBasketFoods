@@ -3,7 +3,7 @@ import '../App.css'
 
 export function Navigation() {
   return (
-    <nav className="navigation">
+   <nav className="navigation">
       <div className="nav-container">
         <Link to="/" className="nav-logo">
           <span className="brand-mark">DBF</span>
@@ -16,12 +16,15 @@ export function Navigation() {
           <li>
             <Link to="/shop">Shop</Link>
           </li>
+           <li>
+            <Link to="/errand">Errands</Link>
+          </li>
           <li>
             <Link to="/journey">How it Works</Link>
           </li>
-          <li>
+          {/* <li>
             <Link to="/standards">Standards</Link>
-          </li>
+          </li> */}
         </ul>
       </div>
     </nav>

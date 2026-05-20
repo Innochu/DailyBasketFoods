@@ -1,17 +1,15 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { FormEvent } from 'react'
-import type { OrderMode } from '../data'
-import { deliveryZones, orderModes } from '../data'
+import { deliveryZones } from '../data'
 
 import { products } from '../data/products'
 
-const STORAGE_KEY = 'dbf_saved_list'
+const STORAGE_KEY = 'dbf_saved_errand_list'
 
-// ── Types ───────────────────────────────────────────────────────────────────
 type SavedList = { name: string; cart: Record<number, number> }
 
-export function Shop() {
-  const [selectedMode, setSelectedMode] = useState<OrderMode>('purchase')
+export function Errand() {
+  // order mode currently unused in Errand flow; keep as comment for future use
   const [selectedZone, setSelectedZone] = useState<string>(deliveryZones[0].id)
   const [customerName, setCustomerName] = useState('')
   const [whatsAppNumber, setWhatsAppNumber] = useState('')
@@ -27,25 +25,19 @@ export function Shop() {
   const [showSavePanel, setShowSavePanel] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
 
-  // persist saved lists
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(savedLists))
-  }, [savedLists])
+  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(savedLists)) }, [savedLists])
 
-  const showToast = (msg: string) => {
-    setToastMsg(msg)
-    setTimeout(() => setToastMsg(''), 2800)
-  }
+  const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2800) }
 
-  const nonErrand = products.filter(p => !p.errand)
-  const categories = ['All', ...Array.from(new Set(nonErrand.map(p => p.category)))]
+  const errandOnly = products.filter(p => p.errand)
+  const categories = ['All', ...Array.from(new Set(errandOnly.map(p => p.category)))]
 
-  const filtered = useMemo(() => nonErrand.filter(p => {
+  const filtered = useMemo(() => errandOnly.filter(p => {
     const matchCat = activeCategory === 'All' || p.category === activeCategory
     const q = search.toLowerCase()
     const matchSearch = !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.note.toLowerCase().includes(q)
     return matchCat && matchSearch
-  }), [search, activeCategory, nonErrand])
+  }), [search, activeCategory, errandOnly])
 
   const addToCart = (id: number) => { setSubmitted(false); setCart(c => ({ ...c, [id]: (c[id] ?? 0) + 1 })) }
   const removeFromCart = (id: number) => {
@@ -73,20 +65,10 @@ export function Shop() {
     showToast(`"${entry.name}" saved — load it anytime!`)
   }
 
-  const loadList = (list: SavedList) => {
-    setCart(list.cart)
-    showToast(`Loaded "${list.name}"`)
-  }
+  const loadList = (list: SavedList) => { setCart(list.cart); showToast(`Loaded "${list.name}"`) }
+  const deleteList = (name: string) => { setSavedLists(prev => prev.filter(l => l.name !== name)) }
 
-  const deleteList = (name: string) => {
-    setSavedLists(prev => prev.filter(l => l.name !== name))
-  }
-
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    if (!canSubmit) return
-    setSubmitted(true)
-  }
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); if (!canSubmit) return; setSubmitted(true) }
 
   return (
     <main className="shop-shell">
@@ -370,19 +352,12 @@ export function Shop() {
       {toastMsg && <div className="toast">{toastMsg}</div>}
 
       <div className="shop-layout">
-        {/* ── Catalog column ── */}
         <div className="catalog-col">
           <div className="catalog-header">
-            <h2 className="catalog-title">Shop Essentials</h2>
+            <h2 className="catalog-title">Errand Items</h2>
             <div className="search-wrap">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input
-                className="search-input"
-                type="search"
-                placeholder="Search products…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
+              <input className="search-input" type="search" placeholder="Search errand items…" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
 
@@ -396,7 +371,7 @@ export function Shop() {
 
           <div className="product-grid">
             {filtered.length === 0 && (
-              <p style={{ gridColumn: '1/-1', color: 'var(--muted)', fontSize: '.9rem' }}>No products match your search.</p>
+              <p style={{ gridColumn: '1/-1', color: 'var(--muted)', fontSize: '.9rem' }}>No errand items match your search.</p>
             )}
             {filtered.map(product => (
               <article key={product.id} className="product-card">
@@ -429,20 +404,17 @@ export function Shop() {
           </div>
         </div>
 
-        {/* ── Sidebar ── */}
         <aside className="sidebar-col">
           <div className="sidebar-card">
             <div className="sidebar-header">
-              <h2>Your Order</h2>
+              <h2>Your Errand Order</h2>
               <span className="cart-count-badge">{cartCount} item{cartCount !== 1 ? 's' : ''}</span>
             </div>
-
             <div className="sidebar-body">
-              {/* Saved lists */}
               <div className="saved-section">
                 <div className="saved-label">Saved lists</div>
                 {savedLists.length === 0
-                  ? <p className="no-saved">No saved lists yet. Save your current cart for quick reorder.</p>
+                  ? <p className="no-saved">No saved lists yet. Save your current errand cart for quick reorder.</p>
                   : (
                     <div className="saved-row">
                       {savedLists.map(list => (
@@ -452,8 +424,7 @@ export function Shop() {
                         </div>
                       ))}
                     </div>
-                  )
-                }
+                  )}
 
                 {cartCount > 0 && (
                   <>
@@ -462,13 +433,7 @@ export function Shop() {
                     </button>
                     {showSavePanel && (
                       <div className="save-panel">
-                        <input
-                          className="save-input"
-                          placeholder="List name (e.g. Weekly groceries)"
-                          value={saveListName}
-                          onChange={e => setSaveListName(e.target.value)}
-                          onKeyDown={e => e.key === 'Enter' && saveList()}
-                        />
+                        <input className="save-input" placeholder="List name (e.g. Market run)" value={saveListName} onChange={e => setSaveListName(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveList()} />
                         <button className="save-confirm" onClick={saveList}>Save</button>
                       </div>
                     )}
@@ -476,9 +441,8 @@ export function Shop() {
                 )}
               </div>
 
-              {/* Cart items */}
               {cartItems.length === 0 ? (
-                <p className="empty-state">Your cart is empty. Add items or load a saved list.</p>
+                <p className="empty-state">Your errand cart is empty. Add items or load a saved list.</p>
               ) : (
                 <div className="cart-list">
                   {cartItems.map(item => (
@@ -497,7 +461,6 @@ export function Shop() {
                 </div>
               )}
 
-              {/* Order form */}
               <form className="order-form" onSubmit={handleSubmit}>
                 <label>
                   Full name
@@ -519,37 +482,25 @@ export function Shop() {
                 </label>
 
                 <label>
-                  Order type
-                  <select value={selectedMode} onChange={e => setSelectedMode(e.target.value as OrderMode)}>
-                    {orderModes.map(mode => (
-                      <option key={mode.id} value={mode.id}>{mode.title}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  Errand request
-                  <textarea rows={3} placeholder="Extra things you need us to help buy." value={errandNote} onChange={e => setErrandNote(e.target.value)} />
+                  Errand details (what should we source?)
+                  <textarea placeholder="Any special notes for the errand..." value={errandNote} onChange={e => setErrandNote(e.target.value)} />
                 </label>
 
                 <div className="charge-box">
-                  <div><span>Delivery fee</span><strong>{selectedZoneDetails.fee}</strong></div>
-                  <div><span>Est. time</span><strong>{selectedZoneDetails.eta}</strong></div>
                   <div><span>Subtotal</span><strong>₦{subtotal.toLocaleString('en-NG')}</strong></div>
-                  <div><span>30% deposit</span><strong>₦{deposit.toLocaleString('en-NG')}</strong></div>
+                  <div><span>Estimated deposit (30%)</span><strong>₦{deposit.toLocaleString('en-NG')}</strong></div>
+                  <div><span>Delivery</span><strong>{selectedZoneDetails.fee}</strong></div>
                 </div>
 
-                <button type="submit" className="submit-btn" disabled={!canSubmit}>
-                  Submit order request
-                </button>
+                <button type="submit" className="submit-btn" disabled={!canSubmit}>Place Errand Order</button>
+
+                {submitted && (
+                  <div className="success-box">
+                    <strong>Thanks — errand order received</strong>
+                    <p>We will confirm availability and final pricing via WhatsApp shortly.</p>
+                  </div>
+                )}
               </form>
-
-              {submitted && (
-                <div className="success-box" role="status">
-                  <strong>Order request ready ✓</strong>
-                  <p>We'll confirm via WhatsApp, then collect 30% deposit before delivery.</p>
-                </div>
-              )}
             </div>
           </div>
         </aside>
