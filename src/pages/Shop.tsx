@@ -2,13 +2,16 @@ import { useState, useMemo, useEffect } from 'react'
 import type { FormEvent } from 'react'
 import type { OrderMode } from '../data'
 import { deliveryZones, orderModes } from '../data'
-
 import { products } from '../data/products'
+import type { UomOption } from '../data/products'
 
 const STORAGE_KEY = 'dbf_saved_list'
 
 // ── Types ───────────────────────────────────────────────────────────────────
-type SavedList = { name: string; cart: Record<number, number> }
+type SavedList = { name: string; cart: Record<number, number>; uomSelections?: Record<number, number> }
+
+// cart key = product id; value = quantity
+// uomSelections = product id → index into product.uom[]
 
 export function Shop() {
   const [selectedMode, setSelectedMode] = useState<OrderMode>('purchase')
@@ -17,6 +20,8 @@ export function Shop() {
   const [whatsAppNumber, setWhatsAppNumber] = useState('')
   const [errandNote, setErrandNote] = useState('')
   const [cart, setCart] = useState<Record<number, number>>({})
+  // tracks which UOM option is selected per product (index into product.uom[])
+  const [uomSelections, setUomSelections] = useState<Record<number, number>>({})
   const [submitted, setSubmitted] = useState(false)
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
@@ -27,7 +32,6 @@ export function Shop() {
   const [showSavePanel, setShowSavePanel] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
 
-  // persist saved lists
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(savedLists))
   }, [savedLists])
@@ -43,21 +47,34 @@ export function Shop() {
   const filtered = useMemo(() => nonErrand.filter(p => {
     const matchCat = activeCategory === 'All' || p.category === activeCategory
     const q = search.toLowerCase()
-    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.note.toLowerCase().includes(q)
+    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
     return matchCat && matchSearch
   }), [search, activeCategory, nonErrand])
+
+ 
+
+  const effectiveUomLabel = (id: number): string => {
+    const p = products.find(x => x.id === id)
+    if (!p || !p.uom) return ''
+    const idx = uomSelections[id] ?? 0
+    return p.uom[idx].label
+  }
 
   const addToCart = (id: number) => { setSubmitted(false); setCart(c => ({ ...c, [id]: (c[id] ?? 0) + 1 })) }
   const removeFromCart = (id: number) => {
     setSubmitted(false)
     setCart(c => {
       const next = (c[id] ?? 0) - 1
-      if (next <= 0) { const nextCart = { ...c }; delete nextCart[id]; return nextCart }
+      if (next <= 0) { const nc = { ...c }; delete nc[id]; return nc }
       return { ...c, [id]: next }
     })
   }
 
-  const cartItems = products.filter(p => cart[p.id]).map(p => ({ ...p, quantity: cart[p.id], total: cart[p.id] * p.price }))
+  const cartItems = products.filter(p => cart[p.id]).map(p => {
+    const unitPrice = 0
+    const qty = cart[p.id]
+    return { ...p, quantity: qty, unitPrice, total: qty * unitPrice, uomLabel: effectiveUomLabel(p.id) }
+  })
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
   const subtotal = cartItems.reduce((s, i) => s + i.total, 0)
   const selectedZoneDetails = deliveryZones.find(z => z.id === selectedZone) ?? deliveryZones[0]
@@ -66,15 +83,16 @@ export function Shop() {
 
   const saveList = () => {
     if (!saveListName.trim()) return
-    const entry: SavedList = { name: saveListName.trim(), cart: { ...cart } }
+    const entry: SavedList = { name: saveListName.trim(), cart: { ...cart }, uomSelections: { ...uomSelections } }
     setSavedLists(prev => [entry, ...prev.filter(l => l.name !== entry.name)])
     setSaveListName('')
     setShowSavePanel(false)
-    showToast(`"${entry.name}" saved — load it anytime!`)
+    showToast(`"${entry.name}" saved!`)
   }
 
   const loadList = (list: SavedList) => {
     setCart(list.cart)
+    if (list.uomSelections) setUomSelections(list.uomSelections)
     showToast(`Loaded "${list.name}"`)
   }
 
@@ -105,10 +123,10 @@ export function Shop() {
           --muted: #7a7060;
           --card: #ffffff;
           --border: #e8e2d4;
-          --radius: 16px;
-          --shadow-sm: 0 2px 8px rgba(45,36,22,.07);
-          --shadow-md: 0 6px 24px rgba(45,36,22,.12);
-          --t: .22s cubic-bezier(.4,0,.2,1);
+          --radius: 14px;
+          --shadow-sm: 0 2px 6px rgba(45,36,22,.07);
+          --shadow-md: 0 6px 20px rgba(45,36,22,.12);
+          --t: .2s cubic-bezier(.4,0,.2,1);
         }
 
         .shop-shell {
@@ -120,22 +138,22 @@ export function Shop() {
 
         /* ── Toast ── */
         .toast {
-          position: fixed; top: 1.25rem; right: 1.25rem; z-index: 999;
+          position: fixed; top: 1rem; right: 1rem; z-index: 999;
           background: var(--olive); color: #fff;
-          padding: .7rem 1.2rem; border-radius: 100px;
-          font-size: .85rem; font-weight: 600;
+          padding: .55rem 1rem; border-radius: 100px;
+          font-size: .82rem; font-weight: 600;
           box-shadow: var(--shadow-md);
-          animation: slideIn .3s ease;
+          animation: slideIn .25s ease;
           pointer-events: none;
         }
-        @keyframes slideIn { from { opacity:0; transform:translateY(-12px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes slideIn { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:translateY(0); } }
 
         /* ── Layout ── */
         .shop-layout {
           display: grid;
-          grid-template-columns: 1fr 360px;
-          gap: 2rem;
-          padding: 2rem clamp(1rem, 4vw, 3rem);
+          grid-template-columns: 1fr 340px;
+          gap: 1.5rem;
+          padding: 1.5rem clamp(.75rem, 3vw, 2.5rem);
           max-width: 1400px;
           margin: 0 auto;
           align-items: start;
@@ -149,31 +167,29 @@ export function Shop() {
           flex-wrap: wrap;
           align-items: center;
           justify-content: space-between;
-          gap: 1rem;
-          margin-bottom: 1.5rem;
+          gap: .75rem;
+          margin-bottom: 1rem;
         }
 
-        .catalog-title { font-family: 'Playfair Display', serif; font-size: clamp(1.5rem,3vw,2rem); font-weight: 800; }
+        .catalog-title { font-family: 'Playfair Display', serif; font-size: clamp(1.3rem,2.5vw,1.7rem); font-weight: 800; }
 
         /* search */
-        .search-wrap {
-          position: relative; flex: 1; min-width: 180px; max-width: 320px;
-        }
-        .search-wrap svg { position: absolute; left: .9rem; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+        .search-wrap { position: relative; flex: 1; min-width: 160px; max-width: 280px; }
+        .search-wrap svg { position: absolute; left: .8rem; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
         .search-input {
-          width: 100%; padding: .6rem .9rem .6rem 2.4rem;
+          width: 100%; padding: .5rem .8rem .5rem 2.2rem;
           border: 1.5px solid var(--border); border-radius: 100px;
           background: var(--card); font-family: 'DM Sans', sans-serif;
-          font-size: .9rem; color: var(--brown); outline: none;
+          font-size: .85rem; color: var(--brown); outline: none;
           transition: border-color var(--t);
         }
         .search-input:focus { border-color: var(--olive); }
 
         /* category pills */
-        .cat-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.5rem; }
+        .cat-row { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
         .cat-pill {
-          padding: .35rem .9rem; border-radius: 100px; border: 1.5px solid var(--border);
-          background: var(--card); font-size: .8rem; font-weight: 600; cursor: pointer;
+          padding: .28rem .8rem; border-radius: 100px; border: 1.5px solid var(--border);
+          background: var(--card); font-size: .75rem; font-weight: 600; cursor: pointer;
           color: var(--muted); transition: all var(--t);
         }
         .cat-pill:hover { border-color: var(--olive-lt); color: var(--olive-lt); }
@@ -182,8 +198,8 @@ export function Shop() {
         /* product grid */
         .product-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-          gap: 1.25rem;
+          grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+          gap: 1rem;
         }
 
         .product-card {
@@ -194,62 +210,78 @@ export function Shop() {
           transition: transform var(--t), box-shadow var(--t);
           display: flex; flex-direction: column;
         }
-        .product-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
+        .product-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
 
         .product-img {
           width: 100%; aspect-ratio: 4/3;
           object-fit: cover; display: block;
-          transition: transform .4s ease;
+          transition: transform .35s ease;
         }
-        .product-card:hover .product-img { transform: scale(1.05); }
+        .product-card:hover .product-img { transform: scale(1.04); }
         .img-wrap { overflow: hidden; position: relative; }
 
         .cat-badge {
-          position: absolute; top: .6rem; left: .6rem;
+          position: absolute; top: .45rem; left: .45rem;
           background: rgba(255,255,255,.88); backdrop-filter: blur(6px);
-          border-radius: 100px; padding: .2rem .65rem;
-          font-size: .7rem; font-weight: 700; color: var(--olive);
+          border-radius: 100px; padding: .15rem .55rem;
+          font-size: .65rem; font-weight: 700; color: var(--olive);
           letter-spacing: .04em;
         }
         .errand-badge {
-          position: absolute; top: .6rem; right: .6rem;
-          background: #fff3cd; border-radius: 100px; padding: .2rem .55rem;
-          font-size: .65rem; font-weight: 700; color: #7a5c00;
-          letter-spacing: .04em;
+          position: absolute; top: .45rem; right: .45rem;
+          background: #fff3cd; border-radius: 100px; padding: .15rem .45rem;
+          font-size: .62rem; font-weight: 700; color: #7a5c00;
         }
 
-        .product-body { padding: .9rem 1rem 1rem; flex: 1; display: flex; flex-direction: column; gap: .4rem; }
-        .product-body h3 { font-size: .95rem; font-weight: 700; line-height: 1.3; }
-        .product-body p { font-size: .78rem; color: var(--muted); line-height: 1.5; flex: 1; }
+        .product-body { padding: .65rem .75rem .75rem; flex: 1; display: flex; flex-direction: column; gap: .3rem; }
+        .product-body h3 { font-size: .7rem; font-weight: 700; line-height: 1.3; }
+        .product-body p { font-size: .72rem; color: var(--muted); line-height: 1.45; flex: 1; }
+
+        /* UOM selector */
+        .uom-select {
+          width: 100%;
+          padding: .45rem .7rem;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          font-family: 'DM Sans', sans-serif;
+          font-size: .60rem;
+          font-weight: 600;
+          color: var(--olive);
+          background: var(--olive-pale);
+          outline: none;
+          cursor: pointer;
+          transition: border-color var(--t);
+          margin-bottom: .1rem;
+        }
+        .uom-select:focus { border-color: var(--olive); }
 
         .product-footer {
           display: flex; align-items: center; justify-content: space-between;
-          margin-top: .6rem;
+          margin-top: .4rem; gap: .4rem;
         }
-        .product-price { font-size: 1rem; font-weight: 700; color: var(--olive); }
-        .pack-size { font-size: .72rem; color: var(--muted); margin-top: .1rem; }
+        .product-price { font-size: .88rem; font-weight: 700; color: var(--olive); }
 
-        .cart-btn-group { display: flex; align-items: center; gap: .4rem; }
+        .cart-btn-group { display: flex; align-items: center; gap: .3rem; }
         .icon-btn {
-          width: 30px; height: 30px; border-radius: 50%; border: none;
+          width: 26px; height: 26px; border-radius: 50%; border: none;
           background: var(--olive-pale); color: var(--olive);
-          font-size: 1.1rem; font-weight: 700; cursor: pointer;
+          font-size: 1rem; font-weight: 700; cursor: pointer;
           display: flex; align-items: center; justify-content: center;
           transition: background var(--t);
         }
         .icon-btn:hover { background: var(--olive); color: #fff; }
         .add-btn {
-          padding: .45rem 1rem; border-radius: 100px;
+          padding: .35rem .85rem; border-radius: 100px;
           background: var(--olive); color: #fff; border: none;
-          font-size: .82rem; font-weight: 600; cursor: pointer;
+          font-size: .78rem; font-weight: 600; cursor: pointer;
           font-family: 'DM Sans', sans-serif;
           transition: background var(--t);
         }
         .add-btn:hover { background: #3a4a22; }
-        .qty-badge { font-size: .88rem; font-weight: 700; min-width: 18px; text-align: center; }
+        .qty-badge { font-size: .82rem; font-weight: 700; min-width: 16px; text-align: center; }
 
         /* ── Sidebar ── */
-        .sidebar-col { position: sticky; top: 1.5rem; }
+        .sidebar-col { position: sticky; top: 1.25rem; }
 
         .sidebar-card {
           background: var(--card);
@@ -259,97 +291,95 @@ export function Shop() {
         }
 
         .sidebar-header {
-          background: var(--olive);
-          color: #fff;
-          padding: 1.1rem 1.25rem;
+          background: var(--olive); color: #fff;
+          padding: .9rem 1.1rem;
           display: flex; align-items: center; justify-content: space-between;
         }
-        .sidebar-header h2 { font-family: 'Playfair Display', serif; font-size: 1.15rem; }
+        .sidebar-header h2 { font-family: 'Playfair Display', serif; font-size: 1.05rem; }
         .cart-count-badge {
           background: var(--tan); color: var(--brown);
-          border-radius: 100px; padding: .2rem .65rem;
-          font-size: .8rem; font-weight: 700;
+          border-radius: 100px; padding: .15rem .6rem;
+          font-size: .76rem; font-weight: 700;
         }
 
-        .sidebar-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
+        .sidebar-body { padding: 1rem; display: flex; flex-direction: column; gap: .85rem; }
 
         /* saved lists */
-        .saved-section { border-bottom: 1.5px solid var(--border); padding-bottom: 1rem; }
-        .saved-label { font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: .6rem; }
-        .saved-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+        .saved-section { border-bottom: 1.5px solid var(--border); padding-bottom: .85rem; }
+        .saved-label { font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: .5rem; }
+        .saved-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
         .saved-chip {
-          display: flex; align-items: center; gap: .35rem;
+          display: flex; align-items: center; gap: .3rem;
           background: var(--olive-pale); border-radius: 100px;
-          padding: .3rem .75rem; font-size: .78rem; font-weight: 600; color: var(--olive);
+          padding: .25rem .65rem; font-size: .75rem; font-weight: 600; color: var(--olive);
           cursor: pointer; border: 1.5px solid transparent;
           transition: all var(--t);
         }
         .saved-chip:hover { border-color: var(--olive); }
-        .saved-chip .del { color: var(--muted); font-size: .8rem; margin-left: .15rem; line-height: 1; }
+        .saved-chip .del { color: var(--muted); font-size: .78rem; margin-left: .1rem; }
         .saved-chip .del:hover { color: #c0392b; }
-        .no-saved { font-size: .8rem; color: var(--muted); }
+        .no-saved { font-size: .76rem; color: var(--muted); }
 
-        /* save panel */
         .save-toggle {
-          display: flex; align-items: center; gap: .4rem;
-          font-size: .8rem; font-weight: 600; color: var(--olive);
+          display: flex; align-items: center; gap: .35rem;
+          font-size: .76rem; font-weight: 600; color: var(--olive);
           cursor: pointer; background: none; border: none; font-family: 'DM Sans', sans-serif;
-          padding: 0; margin-top: .4rem;
+          padding: 0; margin-top: .35rem;
         }
-        .save-panel { display: flex; gap: .5rem; margin-top: .6rem; }
+        .save-panel { display: flex; gap: .4rem; margin-top: .5rem; }
         .save-input {
-          flex: 1; padding: .5rem .8rem; border: 1.5px solid var(--border); border-radius: 8px;
-          font-family: 'DM Sans', sans-serif; font-size: .85rem; color: var(--brown); outline: none;
+          flex: 1; padding: .4rem .7rem; border: 1.5px solid var(--border); border-radius: 8px;
+          font-family: 'DM Sans', sans-serif; font-size: .82rem; color: var(--brown); outline: none;
         }
         .save-input:focus { border-color: var(--olive); }
         .save-confirm {
-          padding: .5rem 1rem; border-radius: 8px; background: var(--olive);
-          color: #fff; border: none; font-size: .82rem; font-weight: 600; cursor: pointer;
+          padding: .4rem .9rem; border-radius: 8px; background: var(--olive);
+          color: #fff; border: none; font-size: .78rem; font-weight: 600; cursor: pointer;
           font-family: 'DM Sans', sans-serif;
         }
 
         /* cart list */
-        .cart-list { display: flex; flex-direction: column; gap: .6rem; }
+        .cart-list { display: flex; flex-direction: column; gap: .5rem; }
         .cart-item {
-          display: flex; align-items: center; justify-content: space-between; gap: .5rem;
-          padding: .6rem .8rem; background: var(--cream); border-radius: 10px;
+          display: flex; align-items: center; justify-content: space-between; gap: .4rem;
+          padding: .5rem .65rem; background: var(--cream); border-radius: 9px;
         }
         .cart-item-info { flex: 1; min-width: 0; }
-        .cart-item-info strong { display: block; font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .cart-item-info span { font-size: .75rem; color: var(--muted); }
-        .cart-stepper { display: flex; align-items: center; gap: .35rem; }
+        .cart-item-info strong { display: block; font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .cart-item-info span { font-size: .7rem; color: var(--muted); }
+        .cart-stepper { display: flex; align-items: center; gap: .3rem; }
 
-        .empty-state { font-size: .85rem; color: var(--muted); text-align: center; padding: 1rem 0; }
+        .empty-state { font-size: .82rem; color: var(--muted); text-align: center; padding: .75rem 0; }
 
         /* form */
-        .order-form { display: flex; flex-direction: column; gap: .75rem; }
-        .order-form label { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; font-weight: 600; color: var(--brown); }
+        .order-form { display: flex; flex-direction: column; gap: .65rem; }
+        .order-form label { display: flex; flex-direction: column; gap: .25rem; font-size: .76rem; font-weight: 600; color: var(--brown); }
         .order-form input, .order-form select, .order-form textarea {
-          padding: .55rem .8rem; border: 1.5px solid var(--border); border-radius: 10px;
-          font-family: 'DM Sans', sans-serif; font-size: .88rem; color: var(--brown);
+          padding: .48rem .7rem; border: 1.5px solid var(--border); border-radius: 9px;
+          font-family: 'DM Sans', sans-serif; font-size: .84rem; color: var(--brown);
           background: var(--cream); outline: none; transition: border-color var(--t);
         }
         .order-form input:focus, .order-form select:focus, .order-form textarea:focus { border-color: var(--olive); background: #fff; }
 
-        .charge-box { background: var(--olive-pale); border-radius: 10px; padding: .75rem .9rem; display: flex; flex-direction: column; gap: .4rem; }
-        .charge-box > div { display: flex; justify-content: space-between; font-size: .82rem; }
+        .charge-box { background: var(--olive-pale); border-radius: 9px; padding: .65rem .8rem; display: flex; flex-direction: column; gap: .35rem; }
+        .charge-box > div { display: flex; justify-content: space-between; font-size: .79rem; }
         .charge-box > div span { color: var(--muted); }
         .charge-box > div strong { color: var(--brown); }
 
         .submit-btn {
-          width: 100%; padding: .85rem; background: var(--olive); color: #fff;
-          border: none; border-radius: 12px; font-size: .95rem; font-weight: 700;
+          width: 100%; padding: .75rem; background: var(--olive); color: #fff;
+          border: none; border-radius: 11px; font-size: .9rem; font-weight: 700;
           font-family: 'DM Sans', sans-serif; cursor: pointer; transition: background var(--t);
         }
         .submit-btn:hover:not(:disabled) { background: #3a4a22; }
         .submit-btn:disabled { opacity: .45; cursor: not-allowed; }
 
         .success-box {
-          background: #eef5e6; border: 1.5px solid #b0cc88; border-radius: 12px;
-          padding: .85rem 1rem;
+          background: #eef5e6; border: 1.5px solid #b0cc88; border-radius: 11px;
+          padding: .75rem .9rem;
         }
-        .success-box strong { display: block; font-size: .9rem; color: var(--olive); margin-bottom: .3rem; }
-        .success-box p { font-size: .8rem; color: var(--muted); line-height: 1.5; }
+        .success-box strong { display: block; font-size: .86rem; color: var(--olive); margin-bottom: .25rem; }
+        .success-box p { font-size: .76rem; color: var(--muted); line-height: 1.5; }
 
         /* ── Responsive ── */
         @media (max-width: 900px) {
@@ -357,10 +387,10 @@ export function Shop() {
           .sidebar-col { position: static; }
         }
         @media (max-width: 560px) {
-          .product-grid { grid-template-columns: repeat(2, 1fr); gap: .75rem; }
+          .product-grid { grid-template-columns: repeat(2, 1fr); gap: .65rem; }
           .catalog-header { flex-direction: column; align-items: flex-start; }
           .search-wrap { max-width: 100%; width: 100%; }
-          .shop-layout { padding: 1rem; gap: 1.5rem; }
+          .shop-layout { padding: .75rem; gap: 1.25rem; }
         }
         @media (max-width: 360px) {
           .product-grid { grid-template-columns: 1fr; }
@@ -375,7 +405,7 @@ export function Shop() {
           <div className="catalog-header">
             <h2 className="catalog-title">Shop Essentials</h2>
             <div className="search-wrap">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
               <input
                 className="search-input"
                 type="search"
@@ -396,36 +426,56 @@ export function Shop() {
 
           <div className="product-grid">
             {filtered.length === 0 && (
-              <p style={{ gridColumn: '1/-1', color: 'var(--muted)', fontSize: '.9rem' }}>No products match your search.</p>
+              <p style={{ gridColumn: '1/-1', color: 'var(--muted)', fontSize: '.85rem' }}>No products match your search.</p>
             )}
-            {filtered.map(product => (
-              <article key={product.id} className="product-card">
-                <div className="img-wrap">
-                  <img className="product-img" src={product.image} alt={product.name} loading="lazy" />
-                  <span className="cat-badge">{product.category}</span>
-                  {product.errand && <span className="errand-badge">🛵 Errand</span>}
-                </div>
-                <div className="product-body">
-                  <h3>{product.name}</h3>
-                  <p>{product.note}</p>
-                  <div className="product-footer">
-                    <div>
-                      <div className="product-price">₦{product.price.toLocaleString('en-NG')}</div>
-                      <div className="pack-size">{product.packSize}</div>
-                    </div>
-                    {cart[product.id] ? (
-                      <div className="cart-btn-group">
-                        <button className="icon-btn" onClick={() => removeFromCart(product.id)}>−</button>
-                        <span className="qty-badge">{cart[product.id]}</span>
-                        <button className="icon-btn" onClick={() => addToCart(product.id)}>+</button>
-                      </div>
-                    ) : (
-                      <button className="add-btn" onClick={() => addToCart(product.id)}>Add</button>
-                    )}
-                  </div>
-                </div>
-              </article>
+          {filtered.map(product => {
+  const hasUom = product.uom && product.uom.length > 0
+  const selectedUomIdx = uomSelections[product.id] ?? 0
+  const inCart = !!cart[product.id]
+
+  return (
+    <article key={product.id} className="product-card">
+      <div className="img-wrap">
+        <img className="product-img" src={product.image} alt={product.name} loading="lazy" />
+        <span className="cat-badge">{product.category}</span>
+        {product.errand && <span className="errand-badge">🛵 Errand</span>}
+      </div>
+      <div className="product-body">
+        <h3>{product.name}</h3>
+
+        {/* UOM selector - wider and only price shown here */}
+        {hasUom && (
+          <select
+            className="uom-select"
+            value={selectedUomIdx}
+            onChange={e => {
+              const idx = Number(e.target.value)
+              setUomSelections(prev => ({ ...prev, [product.id]: idx }))
+            }}
+          >
+            {product.uom!.map((opt: UomOption, i: number) => (
+              <option key={opt.label} value={i}>
+                {opt.label} — ₦{opt.price.toLocaleString('en-NG')}
+              </option>
             ))}
+          </select>
+        )}
+
+        <div className="product-footer">
+          {inCart ? (
+            <div className="cart-btn-group">
+              <button className="icon-btn" onClick={() => removeFromCart(product.id)}>−</button>
+              <span className="qty-badge">{cart[product.id]}</span>
+              <button className="icon-btn" onClick={() => addToCart(product.id)}>+</button>
+            </div>
+          ) : (
+            <button className="add-btn" onClick={() => addToCart(product.id)}>Add</button>
+          )}
+        </div>
+      </div>
+    </article>
+  )
+})}
           </div>
         </div>
 
@@ -442,7 +492,7 @@ export function Shop() {
               <div className="saved-section">
                 <div className="saved-label">Saved lists</div>
                 {savedLists.length === 0
-                  ? <p className="no-saved">No saved lists yet. Save your current cart for quick reorder.</p>
+                  ? <p className="no-saved">No saved lists yet.</p>
                   : (
                     <div className="saved-row">
                       {savedLists.map(list => (
@@ -454,7 +504,6 @@ export function Shop() {
                     </div>
                   )
                 }
-
                 {cartCount > 0 && (
                   <>
                     <button className="save-toggle" onClick={() => setShowSavePanel(v => !v)}>
@@ -464,7 +513,7 @@ export function Shop() {
                       <div className="save-panel">
                         <input
                           className="save-input"
-                          placeholder="List name (e.g. Weekly groceries)"
+                          placeholder="List name…"
                           value={saveListName}
                           onChange={e => setSaveListName(e.target.value)}
                           onKeyDown={e => e.key === 'Enter' && saveList()}
@@ -478,14 +527,16 @@ export function Shop() {
 
               {/* Cart items */}
               {cartItems.length === 0 ? (
-                <p className="empty-state">Your cart is empty. Add items or load a saved list.</p>
+                <p className="empty-state">Your cart is empty.</p>
               ) : (
                 <div className="cart-list">
                   {cartItems.map(item => (
                     <div key={item.id} className="cart-item">
                       <div className="cart-item-info">
                         <strong>{item.name}</strong>
-                        <span>₦{item.total.toLocaleString('en-NG')}</span>
+                        <span>
+                          {item.uomLabel ? `${item.uomLabel} · ` : ''}₦{item.total.toLocaleString('en-NG')}
+                        </span>
                       </div>
                       <div className="cart-stepper">
                         <button className="icon-btn" onClick={() => removeFromCart(item.id)}>−</button>
@@ -529,7 +580,7 @@ export function Shop() {
 
                 <label>
                   Errand request
-                  <textarea rows={3} placeholder="Extra things you need us to help buy." value={errandNote} onChange={e => setErrandNote(e.target.value)} />
+                  <textarea rows={2} placeholder="Extra things you need us to help buy." value={errandNote} onChange={e => setErrandNote(e.target.value)} />
                 </label>
 
                 <div className="charge-box">
