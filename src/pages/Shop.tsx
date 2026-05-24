@@ -1,11 +1,13 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import type { FormEvent, ChangeEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { OrderMode } from '../data'
-import { deliveryZones, orderModes } from '../data'
+import { deliveryZones } from '../data'
 import { products } from '../data/products'
 import type { UomOption } from '../data/products'
 
 const STORAGE_KEY = 'dbf_saved_list'
+const ACTIVE_SESSION_KEY = 'dbf_active_shop_session'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type SavedList = { name: string; cart: Record<number, number>; uomSelections?: Record<number, number> }
@@ -14,13 +16,13 @@ type SavedList = { name: string; cart: Record<number, number>; uomSelections?: R
 // uomSelections = product id → index into product.uom[]
 
 export function Shop() {
-  const [selectedMode, setSelectedMode] = useState<OrderMode>('purchase')
+  const navigate = useNavigate()
+  const [selectedMode] = useState<OrderMode>('purchase')
   const [selectedZone, setSelectedZone] = useState<string>(deliveryZones[0].id)
   const [customerName, setCustomerName] = useState('')
   const [whatsAppNumber, setWhatsAppNumber] = useState('')
   const [errandNote, setErrandNote] = useState('')
   const [cart, setCart] = useState<Record<number, number>>({})
-  // tracks which UOM option is selected per product (index into product.uom[])
   const [uomSelections, setUomSelections] = useState<Record<number, number>>({})
   const [submitted, setSubmitted] = useState(false)
   const [search, setSearch] = useState('')
@@ -32,52 +34,50 @@ export function Shop() {
   const [showSavePanel, setShowSavePanel] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
 
+  // Modal state
+  const [showErrandModal, setShowErrandModal] = useState(false)
+  const [hasSeenErrandPrompt, setHasSeenErrandPrompt] = useState(false)
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(savedLists))
   }, [savedLists])
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({ cart, uomSelections }))
+  }, [cart, uomSelections])
 
   const showToast = (msg: string) => {
     setToastMsg(msg)
     setTimeout(() => setToastMsg(''), 2800)
   }
 
-  // Memoize categories to prevent re-calculation on every render
   const categories = useMemo(() => {
     const nonErrandProducts = products.filter(p => !p.errand);
     return ['All', ...Array.from(new Set(nonErrandProducts.map(p => p.category)))];
-  }, []); // products is a static import, so no need to include in dependencies
+  }, []);
 
   const filtered = useMemo(() => products.filter(p => {
-    // Filter out errand products if selectedMode is 'purchase' and not 'both'
     if (selectedMode === 'purchase' && p.errand) return false;
-    // Filter out non-errand products if selectedMode is 'errand'
     if (selectedMode === 'errand' && !p.errand) return false;
-
     const matchCat = activeCategory === 'All' || p.category === activeCategory
     const q = search.toLowerCase()
     const matchSearch = !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
     return matchCat && matchSearch
-  }), [search, activeCategory, selectedMode]); // products is a static import
+  }), [search, activeCategory, selectedMode]);
 
- 
-
-  // Helper to get the label of the selected UOM for a product
   const effectiveUomLabel = useCallback((id: number): string => {
     const p = products.find(x => x.id === id)
     if (!p || !p.uom) return ''
     const idx = uomSelections[id] ?? 0
     return p.uom[idx]?.label ?? ''
-  }, [uomSelections]); // products is a static import
+  }, [uomSelections]);
 
-  // Helper to get the price of the selected UOM for a product
   const getSelectedUomPrice = useCallback((id: number): number => {
     const product = products.find(p => p.id === id);
-    if (!product || !product.uom || product.uom.length === 0) {
-      return 0;
-    }
+    if (!product || !product.uom || product.uom.length === 0) return 0;
     const selectedIdx = uomSelections[id] ?? 0;
     return product.uom[selectedIdx]?.price ?? 0;
-  }, [uomSelections]); // products is a static import
+  }, [uomSelections]);
 
   const addToCart = (id: number) => { setSubmitted(false); setCart(c => ({ ...c, [id]: (c[id] ?? 0) + 1 })) }
   const removeFromCart = (id: number) => {
@@ -92,14 +92,17 @@ export function Shop() {
   const cartItems = useMemo(() => {
     return products.filter(p => cart[p.id]).map(p => {
       const qty = cart[p.id];
-      const unitPrice = getSelectedUomPrice(p.id); // Correctly get price from selected UOM
+      const unitPrice = getSelectedUomPrice(p.id);
       return { ...p, quantity: qty, unitPrice, total: qty * unitPrice, uomLabel: effectiveUomLabel(p.id) };
     });
-  }, [cart, getSelectedUomPrice, effectiveUomLabel]); // products is a static import
+  }, [cart, getSelectedUomPrice, effectiveUomLabel]);
+
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
   const subtotal = cartItems.reduce((s, i) => s + i.total, 0)
   const selectedZoneDetails = deliveryZones.find(z => z.id === selectedZone) ?? deliveryZones[0]
-  const deposit = Math.ceil(subtotal * 0.3)
+  const deliveryFeeNum = parseInt(selectedZoneDetails.fee.replace(/[^\d]/g, ''), 10) || 0
+  const deposit = Math.ceil(subtotal * 0.5)
+  const totalAmount = subtotal + deliveryFeeNum
   const canSubmit = cartCount > 0 || errandNote.trim().length > 0
 
   const saveList = () => {
@@ -159,7 +162,7 @@ export function Shop() {
 
         /* ── Toast ── */
         .toast {
-          position: fixed; top: 1rem; right: 1rem; z-index: 999;
+          position: fixed; top: 1rem; right: 1rem; z-index: 9999;
           background: var(--olive); color: #fff;
           padding: .55rem 1rem; border-radius: 100px;
           font-size: .82rem; font-weight: 600;
@@ -312,7 +315,7 @@ export function Shop() {
         }
 
         .sidebar-header {
-          background: var(--olive); color: #fff;
+          background: #02792e; color: var(--brown);
           padding: .9rem 1.1rem;
           display: flex; align-items: center; justify-content: space-between;
         }
@@ -382,7 +385,7 @@ export function Shop() {
         }
         .order-form input:focus, .order-form select:focus, .order-form textarea:focus { border-color: var(--olive); background: #fff; }
 
-        .charge-box { background: var(--olive-pale); border-radius: 9px; padding: .65rem .8rem; display: flex; flex-direction: column; gap: .35rem; }
+        .charge-box { background: #fdf2e9; border: 1px solid #f5d7b5; border-radius: 9px; padding: .65rem .8rem; display: flex; flex-direction: column; gap: .35rem; }
         .charge-box > div { display: flex; justify-content: space-between; font-size: .79rem; }
         .charge-box > div span { color: var(--muted); }
         .charge-box > div strong { color: var(--brown); }
@@ -416,6 +419,135 @@ export function Shop() {
         @media (max-width: 360px) {
           .product-grid { grid-template-columns: 1fr; }
         }
+
+        /* ── Errand Modal ── */
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+          background: rgba(45, 36, 22, 0.6);
+          backdrop-filter: blur(5px);
+          -webkit-backdrop-filter: blur(5px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 1rem;
+          animation: fadeOverlay .22s ease;
+        }
+        @keyframes fadeOverlay {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+
+        .modal-content {
+          background: var(--card);
+          border-radius: 22px;
+          padding: 2.25rem 2rem 2rem;
+          max-width: 440px;
+          width: 100%;
+          box-shadow: 0 32px 80px rgba(45,36,22,.28), 0 2px 8px rgba(45,36,22,.08);
+          text-align: center;
+          animation: popIn .28s cubic-bezier(.34,1.56,.64,1);
+          position: relative;
+          border: 1.5px solid var(--border);
+        }
+        @keyframes popIn {
+          from { opacity: 0; transform: scale(.84) translateY(20px); }
+          to   { opacity: 1; transform: scale(1)   translateY(0);    }
+        }
+
+        .modal-icon {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 64px;
+          height: 64px;
+          border-radius: 50%;
+          background: var(--olive-pale);
+          font-size: 2rem;
+          margin-bottom: 1.1rem;
+          border: 2px solid #d4e4b8;
+        }
+
+        .modal-content h3 {
+          font-family: 'Playfair Display', serif;
+          font-size: 1.4rem;
+          font-weight: 800;
+          color: var(--brown);
+          margin-bottom: .6rem;
+          line-height: 1.3;
+        }
+
+        .modal-content p {
+          font-size: .88rem;
+          color: var(--muted);
+          line-height: 1.65;
+          margin-bottom: 1.75rem;
+          max-width: 320px;
+          margin-left: auto;
+          margin-right: auto;
+        }
+
+        .modal-divider {
+          height: 1px;
+          background: var(--border);
+          margin: 0 -2rem 1.5rem;
+        }
+
+        .modal-actions {
+          display: flex;
+          gap: .75rem;
+          justify-content: center;
+        }
+
+        .modal-btn {
+          flex: 1;
+          padding: .78rem 1rem;
+          border-radius: 12px;
+          font-family: 'DM Sans', sans-serif;
+          font-size: .88rem;
+          font-weight: 700;
+          cursor: pointer;
+          border: 2px solid transparent;
+          transition: all var(--t);
+          line-height: 1;
+        }
+
+        .modal-btn.no {
+          background: var(--cream);
+          color: var(--brown);
+          border-color: var(--border);
+        }
+        .modal-btn.no:hover {
+          border-color: var(--olive-lt);
+          color: var(--olive);
+          background: var(--olive-pale);
+          transform: translateY(-1px);
+        }
+
+        .modal-btn.yes {
+          background: var(--olive);
+          color: #fff;
+          border-color: var(--olive);
+          box-shadow: 0 4px 14px rgba(74,94,47,.35);
+        }
+        .modal-btn.yes:hover {
+          background: #3a4a22;
+          border-color: #3a4a22;
+          box-shadow: 0 6px 20px rgba(74,94,47,.45);
+          transform: translateY(-1px);
+        }
+
+        .modal-btn.yes::after {
+          content: ' →';
+          opacity: .8;
+        }
+
+        @media (max-width: 400px) {
+          .modal-content { padding: 1.75rem 1.25rem 1.5rem; }
+          .modal-actions { flex-direction: column; }
+          .modal-btn { width: 100%; }
+        }
       `}</style>
 
       {toastMsg && <div className="toast">{toastMsg}</div>}
@@ -445,64 +577,63 @@ export function Shop() {
             ))}
           </div>
 
-          {/* Add a filter for order mode to show only errand items if selectedMode is 'errand' */}
           {selectedMode === 'errand' && (
             <p style={{ marginBottom: '1rem', color: 'var(--olive)', fontSize: '.9rem', fontWeight: 600 }}>
               Showing only errand items. Use the text box below to add unlisted items.
             </p>
           )}
+
           <div className="product-grid">
             {filtered.length === 0 && (
               <p style={{ gridColumn: '1/-1', color: 'var(--muted)', fontSize: '.85rem' }}>No products match your search.</p>
             )}
-          {filtered.map(product => {
-  const hasUom = product.uom && product.uom.length > 0
-  const selectedUomIdx = uomSelections[product.id] ?? 0
-  const inCart = !!cart[product.id]
+            {filtered.map(product => {
+              const hasUom = product.uom && product.uom.length > 0
+              const selectedUomIdx = uomSelections[product.id] ?? 0
+              const inCart = !!cart[product.id]
 
-  return (
-    <article key={product.id} className="product-card">
-      <div className="img-wrap">
-        <img className="product-img" src={product.image} alt={product.name} loading="lazy" />
-        <span className="cat-badge">{product.category}</span>
-        {product.errand && <span className="errand-badge">🛵 Errand</span>}
-      </div>
-      <div className="product-body">
-        <h3>{product.name}</h3>
+              return (
+                <article key={product.id} className="product-card">
+                  <div className="img-wrap">
+                    <img className="product-img" src={product.image} alt={product.name} loading="lazy" />
+                    <span className="cat-badge">{product.category}</span>
+                    {product.errand && <span className="errand-badge">🛵 Errand</span>}
+                  </div>
+                  <div className="product-body">
+                    <h3>{product.name}</h3>
 
-        {/* UOM selector - wider and only price shown here */}
-        {hasUom && (
-          <select
-            className="uom-select"
-            value={selectedUomIdx}
-            onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-              const idx = Number(e.target.value)
-              setUomSelections(prev => ({ ...prev, [product.id]: idx }))
-            }}
-          >
-            {product.uom!.map((opt: UomOption, i: number) => (
-              <option key={opt.label} value={i}>
-                {opt.label} — ₦{opt.price.toLocaleString('en-NG')}
-              </option>
-            ))}
-          </select>
-        )}
+                    {hasUom && (
+                      <select
+                        className="uom-select"
+                        value={selectedUomIdx}
+                        onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                          const idx = Number(e.target.value)
+                          setUomSelections(prev => ({ ...prev, [product.id]: idx }))
+                        }}
+                      >
+                        {product.uom!.map((opt: UomOption, i: number) => (
+                          <option key={opt.label} value={i}>
+                            {opt.label} — ₦{opt.price.toLocaleString('en-NG')}
+                          </option>
+                        ))}
+                      </select>
+                    )}
 
-        <div className="product-footer">
-          {inCart ? (
-            <div className="cart-btn-group">
-              <button className="icon-btn" onClick={() => removeFromCart(product.id)}>−</button>
-              <span className="qty-badge">{cart[product.id]}</span>
-              <button className="icon-btn" onClick={() => addToCart(product.id)}>+</button>
-            </div>
-          ) : (
-            <button className="add-btn" onClick={() => addToCart(product.id)}>Add</button>
-          )}
-        </div>
-      </div>
-    </article>
-  )
-})}
+                    <div className="product-footer">
+                      {inCart ? (
+                        <div className="cart-btn-group">
+                          <button className="icon-btn" onClick={() => removeFromCart(product.id)}>−</button>
+                          <span className="qty-badge">{cart[product.id]}</span>
+                          <button className="icon-btn" onClick={() => addToCart(product.id)}>+</button>
+                        </div>
+                      ) : (
+                        <button className="add-btn" onClick={() => addToCart(product.id)}>Add</button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         </div>
 
@@ -562,7 +693,7 @@ export function Shop() {
                       <div className="cart-item-info">
                         <strong>{item.name}</strong>
                         <span>
-                          {item.uomLabel ? `${item.uomLabel} · ` : ''}₦{item.total.toLocaleString('en-NG')}
+                          {item.quantity} x {item.uomLabel || 'item'} · ₦{item.total.toLocaleString('en-NG')}
                         </span>
                       </div>
                       <div className="cart-stepper">
@@ -578,7 +709,7 @@ export function Shop() {
               {/* Order form */}
               <form className="order-form" onSubmit={handleSubmit}>
                 <label>
-                  Full name
+                  Name
                   <input type="text" placeholder="Customer name" value={customerName} onChange={e => setCustomerName(e.target.value)} />
                 </label>
 
@@ -597,41 +728,74 @@ export function Shop() {
                 </label>
 
                 <label>
-                  Order type
-                  <select value={selectedMode} onChange={e => setSelectedMode(e.target.value as OrderMode)}>
-                    {orderModes.filter(mode => mode.id !== 'errand').map(mode => ( // Only show 'purchase' and 'both' here
-                      <option key={mode.id} value={mode.id}>{mode.title}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  Errand request
-                  <textarea rows={2} placeholder="Extra things you need us to help buy." value={errandNote} onChange={e => setErrandNote(e.target.value)} />
+                  Comment
+                  <textarea rows={2} placeholder="Do you have a special request on your purchase?" value={errandNote} onChange={e => setErrandNote(e.target.value)} />
                 </label>
 
                 <div className="charge-box">
+                  <div><span>Subtotal</span><strong>₦{subtotal.toLocaleString('en-NG')}</strong></div>
                   <div><span>Delivery fee</span><strong>{selectedZoneDetails.fee}</strong></div>
                   <div><span>Est. time</span><strong>{selectedZoneDetails.eta}</strong></div>
-                  <div><span>Subtotal</span><strong>₦{subtotal.toLocaleString('en-NG')}</strong></div>
-                  <div><span>30% deposit</span><strong>₦{deposit.toLocaleString('en-NG')}</strong></div>
+                  <div><span>Total Amount</span><strong>₦{totalAmount.toLocaleString('en-NG')}</strong></div>
+                  <div style={{ borderTop: '1px solid #f5d7b5', paddingTop: '.4rem', marginTop: '.2rem' }}>
+                    <span>50% deposit</span><strong>₦{deposit.toLocaleString('en-NG')}</strong>
+                  </div>
                 </div>
 
-                <button type="submit" className="submit-btn" disabled={!canSubmit}>
-                  Submit order request
-                </button>
+                {!hasSeenErrandPrompt ? (
+                  <button
+                    type="button"
+                    className="submit-btn"
+                    disabled={!canSubmit}
+                    onClick={() => setShowErrandModal(true)}
+                  >
+                    Submit order request
+                  </button>
+                ) : (
+                  <button type="submit" className="submit-btn" disabled={!canSubmit}>
+                    Submit order request
+                  </button>
+                )}
               </form>
 
               {submitted && (
                 <div className="success-box" role="status">
                   <strong>Order request ready ✓</strong>
-                  <p>We'll confirm via WhatsApp, then collect 30% deposit before delivery.</p>
+                  <p>We'll confirm via WhatsApp, then collect 50% deposit before delivery.</p>
                 </div>
               )}
             </div>
           </div>
         </aside>
       </div>
+
+      {/* ── Errand Modal ── */}
+      {showErrandModal && (
+        <div className="modal-overlay" onClick={() => { setHasSeenErrandPrompt(true); setShowErrandModal(false); }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-icon">🛵</div>
+            <h3>Wait, One More Thing!</h3>
+            <p>
+              Would you like us to run a market errand for you — picking up items we don't currently have in stock — before you checkout?
+            </p>
+            <div className="modal-divider" />
+            <div className="modal-actions">
+              <button
+                className="modal-btn no"
+                onClick={() => { setHasSeenErrandPrompt(true); setShowErrandModal(false); }}
+              >
+                No, just submit
+              </button>
+              <button
+                className="modal-btn yes"
+                onClick={() => navigate('/errand')}
+              >
+                Yes, go to Errand
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

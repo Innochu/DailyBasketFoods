@@ -6,14 +6,12 @@ import { products } from '../data/products'
 import type { UomOption } from '../data/products'
 
 const STORAGE_KEY = 'dbf_saved_errand_list'
+const ACTIVE_SHOP_SESSION_KEY = 'dbf_active_shop_session'
 
 type SavedList = { name: string; cart: Record<number, number>; uomSelections?: Record<number, number> }
 
 export function Errand() {
   // order mode currently unused in Errand flow; keep as comment for future use
-  const [selectedZone, setSelectedZone] = useState<string>(deliveryZones[0].id)
-  const [customerName, setCustomerName] = useState('')
-  const [whatsAppNumber, setWhatsAppNumber] = useState('')
   const [errandNote, setErrandNote] = useState('')
   const [cart, setCart] = useState<Record<number, number>>({})
   // tracks which UOM option is selected per product (index into product.uom[])
@@ -35,6 +33,23 @@ export function Errand() {
   const categories = useMemo(() => {
     const errandProducts = products.filter(p => p.errand);
     return ['All', ...Array.from(new Set(errandProducts.map(p => p.category)))];
+  }, []);
+
+  // Calculate the value of the active Shop cart session
+  const shopSessionSubtotal = useMemo(() => {
+    try {
+      const stored = localStorage.getItem(ACTIVE_SHOP_SESSION_KEY);
+      if (!stored) return 0;
+      const { cart: sCart, uomSelections: sUom } = JSON.parse(stored);
+      return Object.entries(sCart as Record<number, number>).reduce((total, [idStr, qty]) => {
+        const id = Number(idStr);
+        const p = products.find(x => x.id === id);
+        if (!p || !p.uom) return total;
+        const idx = sUom[id] ?? 0;
+        const unitPrice = p.uom[idx]?.price ?? 0;
+        return total + (qty * unitPrice);
+      }, 0);
+    } catch { return 0; }
   }, []);
 
   const filtered = useMemo(() => products.filter(p => {
@@ -82,9 +97,12 @@ export function Errand() {
   }, [cart, getSelectedUomPrice, effectiveUomLabel]);
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
   const subtotal = cartItems.reduce((s, i) => s + i.total, 0)
-  const selectedZoneDetails = deliveryZones.find(z => z.id === selectedZone) ?? deliveryZones[0]
-  const deposit = Math.ceil(subtotal * 0.3)
-  const canSubmit = cartCount > 0 || errandNote.trim().length > 0
+  const selectedZoneDetails = deliveryZones[0]
+  const errandDeliveryFee = 1000
+  const totalAmount = subtotal + errandDeliveryFee
+  
+  const isShopMinMet = shopSessionSubtotal > 3000
+  const canSubmit = (cartCount > 0 || errandNote.trim().length > 0) && isShopMinMet
 
   const saveList = () => {
     if (!saveListName.trim()) return
@@ -292,8 +310,8 @@ export function Errand() {
         }
 
         .sidebar-header {
-          background: var(--olive);
-          color: #fff;
+          background: #02792e;
+          color: var(--brown);
           padding: 1.1rem 1.25rem;
           display: flex; align-items: center; justify-content: space-between;
         }
@@ -364,7 +382,7 @@ export function Errand() {
         }
         .order-form input:focus, .order-form select:focus, .order-form textarea:focus { border-color: var(--olive); background: #fff; }
 
-        .charge-box { background: var(--olive-pale); border-radius: 10px; padding: .75rem .9rem; display: flex; flex-direction: column; gap: .4rem; }
+        .charge-box { background: #fdf2e9; border: 1px solid #f5d7b5; border-radius: 10px; padding: .75rem .9rem; display: flex; flex-direction: column; gap: .4rem; }
         .charge-box > div { display: flex; justify-content: space-between; font-size: .82rem; }
         .charge-box > div span { color: var(--muted); }
         .charge-box > div strong { color: var(--brown); }
@@ -520,7 +538,7 @@ export function Errand() {
                       <div className="cart-item-info">
                         <strong>{item.name}</strong>
                         <span>
-                          {item.uomLabel ? `${item.uomLabel} · ` : ''}₦{item.total.toLocaleString('en-NG')}
+                          {item.quantity} x {item.uomLabel || 'item'} · ₦{item.total.toLocaleString('en-NG')}
                         </span>
                       </div>
                       <div className="cart-stepper">
@@ -535,41 +553,31 @@ export function Errand() {
 
               <form className="order-form" onSubmit={handleSubmit}>
                 <label>
-                  Full name
-                  <input type="text" placeholder="Customer name" value={customerName} onChange={e => setCustomerName(e.target.value)} />
-                </label>
-
-                <label>
-                  WhatsApp number
-                  <input type="tel" placeholder="e.g. 0800 000 0000" value={whatsAppNumber} onChange={e => setWhatsAppNumber(e.target.value)} />
-                </label>
-
-                <label>
-                  Delivery area
-                  <select value={selectedZone} onChange={e => setSelectedZone(e.target.value)}>
-                    {deliveryZones.map(zone => (
-                      <option key={zone.id} value={zone.id}>{zone.label}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  Errand details (what should we source?)
+                  Comments
                   <textarea placeholder="Any special notes for the errand..." value={errandNote} onChange={e => setErrandNote(e.target.value)} />
                 </label>
 
+                {!isShopMinMet && (
+                  <p style={{ fontSize: '.75rem', color: '#c0392b', fontWeight: 600, background: '#fdf2f2', padding: '.6rem', borderRadius: '8px' }}>
+                    ⚠️ Note: You must have items worth over ₦3,000 in your Shop cart to submit an errand request.
+                  </p>
+                )}
+
                 <div className="charge-box">
                   <div><span>Subtotal</span><strong>₦{subtotal.toLocaleString('en-NG')}</strong></div>
-                  <div><span>Estimated deposit (30%)</span><strong>₦{deposit.toLocaleString('en-NG')}</strong></div>
-                  <div><span>Delivery</span><strong>{selectedZoneDetails.fee}</strong></div>
+                  <div><span>Delivery</span><strong>₦{errandDeliveryFee.toLocaleString('en-NG')}</strong></div>
+                  <div><span>Est. time</span><strong>{selectedZoneDetails.eta}</strong></div>
+                  <div style={{ borderTop: '1px solid #f5d7b5', paddingTop: '.4rem', marginTop: '.2rem' }}>
+                    <span>Total Amount</span><strong>₦{totalAmount.toLocaleString('en-NG')}</strong>
+                  </div>
                 </div>
 
-                <button type="submit" className="submit-btn" disabled={!canSubmit}>Place Errand Order</button>
+                <button type="submit" className="submit-btn" disabled={!canSubmit}>Submit</button>
 
                 {submitted && (
                   <div className="success-box">
                     <strong>Thanks — errand order received</strong>
-                    <p>We will confirm availability and final pricing via WhatsApp shortly.</p>
+                    <p>We will confirm availability and final pricing via WhatsApp shortly. Please prepare for the total payment on delivery.</p>
                   </div>
                 )}
               </form>
