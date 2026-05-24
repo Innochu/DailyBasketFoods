@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react'
-import type { FormEvent } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import type { FormEvent, ChangeEvent } from 'react'
 import type { OrderMode } from '../data'
 import { deliveryZones, orderModes } from '../data'
 import { products } from '../data/products'
@@ -41,24 +41,43 @@ export function Shop() {
     setTimeout(() => setToastMsg(''), 2800)
   }
 
-  const nonErrand = products.filter(p => !p.errand)
-  const categories = ['All', ...Array.from(new Set(nonErrand.map(p => p.category)))]
+  // Memoize categories to prevent re-calculation on every render
+  const categories = useMemo(() => {
+    const nonErrandProducts = products.filter(p => !p.errand);
+    return ['All', ...Array.from(new Set(nonErrandProducts.map(p => p.category)))];
+  }, []); // products is a static import, so no need to include in dependencies
 
-  const filtered = useMemo(() => nonErrand.filter(p => {
+  const filtered = useMemo(() => products.filter(p => {
+    // Filter out errand products if selectedMode is 'purchase' and not 'both'
+    if (selectedMode === 'purchase' && p.errand) return false;
+    // Filter out non-errand products if selectedMode is 'errand'
+    if (selectedMode === 'errand' && !p.errand) return false;
+
     const matchCat = activeCategory === 'All' || p.category === activeCategory
     const q = search.toLowerCase()
     const matchSearch = !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
     return matchCat && matchSearch
-  }), [search, activeCategory, nonErrand])
+  }), [search, activeCategory, selectedMode]); // products is a static import
 
  
 
-  const effectiveUomLabel = (id: number): string => {
+  // Helper to get the label of the selected UOM for a product
+  const effectiveUomLabel = useCallback((id: number): string => {
     const p = products.find(x => x.id === id)
     if (!p || !p.uom) return ''
     const idx = uomSelections[id] ?? 0
-    return p.uom[idx].label
-  }
+    return p.uom[idx]?.label ?? ''
+  }, [uomSelections]); // products is a static import
+
+  // Helper to get the price of the selected UOM for a product
+  const getSelectedUomPrice = useCallback((id: number): number => {
+    const product = products.find(p => p.id === id);
+    if (!product || !product.uom || product.uom.length === 0) {
+      return 0;
+    }
+    const selectedIdx = uomSelections[id] ?? 0;
+    return product.uom[selectedIdx]?.price ?? 0;
+  }, [uomSelections]); // products is a static import
 
   const addToCart = (id: number) => { setSubmitted(false); setCart(c => ({ ...c, [id]: (c[id] ?? 0) + 1 })) }
   const removeFromCart = (id: number) => {
@@ -70,11 +89,13 @@ export function Shop() {
     })
   }
 
-  const cartItems = products.filter(p => cart[p.id]).map(p => {
-    const unitPrice = 0
-    const qty = cart[p.id]
-    return { ...p, quantity: qty, unitPrice, total: qty * unitPrice, uomLabel: effectiveUomLabel(p.id) }
-  })
+  const cartItems = useMemo(() => {
+    return products.filter(p => cart[p.id]).map(p => {
+      const qty = cart[p.id];
+      const unitPrice = getSelectedUomPrice(p.id); // Correctly get price from selected UOM
+      return { ...p, quantity: qty, unitPrice, total: qty * unitPrice, uomLabel: effectiveUomLabel(p.id) };
+    });
+  }, [cart, getSelectedUomPrice, effectiveUomLabel]); // products is a static import
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
   const subtotal = cartItems.reduce((s, i) => s + i.total, 0)
   const selectedZoneDetails = deliveryZones.find(z => z.id === selectedZone) ?? deliveryZones[0]
@@ -424,6 +445,12 @@ export function Shop() {
             ))}
           </div>
 
+          {/* Add a filter for order mode to show only errand items if selectedMode is 'errand' */}
+          {selectedMode === 'errand' && (
+            <p style={{ marginBottom: '1rem', color: 'var(--olive)', fontSize: '.9rem', fontWeight: 600 }}>
+              Showing only errand items. Use the text box below to add unlisted items.
+            </p>
+          )}
           <div className="product-grid">
             {filtered.length === 0 && (
               <p style={{ gridColumn: '1/-1', color: 'var(--muted)', fontSize: '.85rem' }}>No products match your search.</p>
@@ -448,7 +475,7 @@ export function Shop() {
           <select
             className="uom-select"
             value={selectedUomIdx}
-            onChange={e => {
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => {
               const idx = Number(e.target.value)
               setUomSelections(prev => ({ ...prev, [product.id]: idx }))
             }}
@@ -572,7 +599,7 @@ export function Shop() {
                 <label>
                   Order type
                   <select value={selectedMode} onChange={e => setSelectedMode(e.target.value as OrderMode)}>
-                    {orderModes.map(mode => (
+                    {orderModes.filter(mode => mode.id !== 'errand').map(mode => ( // Only show 'purchase' and 'both' here
                       <option key={mode.id} value={mode.id}>{mode.title}</option>
                     ))}
                   </select>

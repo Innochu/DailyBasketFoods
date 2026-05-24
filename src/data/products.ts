@@ -10,6 +10,10 @@ export type Product = {
   uom: UomOption[];
   errand: boolean;
   image: string;
+  note?: string;
+  price?: number;
+  packSize?: string;
+
 };
 
 // Shared UOM scales
@@ -92,7 +96,7 @@ export const products: Product[] = [
   { id: 67, name: 'Malt Drinks', category: 'Drinks & Refreshments', uom: [{ label: 'per bottle/can', price: 900 }], errand: true, image: '/images/products/malt-drinks.jpg' },
   { id: 68, name: 'Fruit Juices', category: 'Drinks & Refreshments', uom: [{ label: '1 litre pack', price: 1800 }], errand: true, image: '/images/products/fruit-juice.jpg' },
   { id: 69, name: 'Energy Drinks', category: 'Drinks & Refreshments', uom: [{ label: 'per bottle/can', price: 1200 }], errand: true, image: '/images/products/energy-drinks.jpg' },
-  { id: 70, name: 'Action Bitters', category: 'Drinks & Refreshments', uom: [{ label: 'all sizes', price: 1600 }], errand: true, image: '/images/products/action-bitters.jpg' },
+  { id: 70, name: 'Bitters', category: 'Drinks & Refreshments', uom: [{ label: 'all sizes', price: 1600 }], errand: true, image: '/images/products/bitters.jpg' },
 
   // Bakery & Dairy
   { id: 71, name: 'Bread', category: 'Bakery & Dairy', uom: [{ label: '1 loaf', price: 1200 }], errand: true, image: '/images/products/bread.jpg' },

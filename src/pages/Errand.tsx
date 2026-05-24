@@ -1,12 +1,13 @@
-import { useState, useMemo, useEffect } from 'react'
-import type { FormEvent } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import type { FormEvent, ChangeEvent } from 'react'
 import { deliveryZones } from '../data'
 
 import { products } from '../data/products'
+import type { UomOption } from '../data/products'
 
 const STORAGE_KEY = 'dbf_saved_errand_list'
 
-type SavedList = { name: string; cart: Record<number, number> }
+type SavedList = { name: string; cart: Record<number, number>; uomSelections?: Record<number, number> }
 
 export function Errand() {
   // order mode currently unused in Errand flow; keep as comment for future use
@@ -15,6 +16,8 @@ export function Errand() {
   const [whatsAppNumber, setWhatsAppNumber] = useState('')
   const [errandNote, setErrandNote] = useState('')
   const [cart, setCart] = useState<Record<number, number>>({})
+  // tracks which UOM option is selected per product (index into product.uom[])
+  const [uomSelections, setUomSelections] = useState<Record<number, number>>({})
   const [submitted, setSubmitted] = useState(false)
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
@@ -29,15 +32,36 @@ export function Errand() {
 
   const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2800) }
 
-  const errandOnly = products.filter(p => p.errand)
-  const categories = ['All', ...Array.from(new Set(errandOnly.map(p => p.category)))]
+  const categories = useMemo(() => {
+    const errandProducts = products.filter(p => p.errand);
+    return ['All', ...Array.from(new Set(errandProducts.map(p => p.category)))];
+  }, []);
 
-  const filtered = useMemo(() => errandOnly.filter(p => {
+  const filtered = useMemo(() => products.filter(p => {
+    if (!p.errand) return false
     const matchCat = activeCategory === 'All' || p.category === activeCategory
     const q = search.toLowerCase()
-    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.note.toLowerCase().includes(q)
+    const matchSearch = !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
     return matchCat && matchSearch
-  }), [search, activeCategory, errandOnly])
+  }), [search, activeCategory])
+
+  // Helper to get the label of the selected UOM for a product
+  const effectiveUomLabel = useCallback((id: number): string => {
+    const p = products.find(x => x.id === id)
+    if (!p || !p.uom) return ''
+    const idx = uomSelections[id] ?? 0
+    return p.uom[idx]?.label ?? ''
+  }, [uomSelections]);
+
+  // Helper to get the price of the selected UOM for a product
+  const getSelectedUomPrice = useCallback((id: number): number => {
+    const product = products.find(p => p.id === id);
+    if (!product || !product.uom || product.uom.length === 0) {
+      return 0;
+    }
+    const selectedIdx = uomSelections[id] ?? 0;
+    return product.uom[selectedIdx]?.price ?? 0;
+  }, [uomSelections]);
 
   const addToCart = (id: number) => { setSubmitted(false); setCart(c => ({ ...c, [id]: (c[id] ?? 0) + 1 })) }
   const removeFromCart = (id: number) => {
@@ -49,7 +73,13 @@ export function Errand() {
     })
   }
 
-  const cartItems = products.filter(p => cart[p.id]).map(p => ({ ...p, quantity: cart[p.id], total: cart[p.id] * p.price }))
+  const cartItems = useMemo(() => {
+    return products.filter(p => cart[p.id]).map(p => {
+      const qty = cart[p.id];
+      const unitPrice = getSelectedUomPrice(p.id);
+      return { ...p, quantity: qty, unitPrice, total: qty * unitPrice, uomLabel: effectiveUomLabel(p.id) };
+    });
+  }, [cart, getSelectedUomPrice, effectiveUomLabel]);
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
   const subtotal = cartItems.reduce((s, i) => s + i.total, 0)
   const selectedZoneDetails = deliveryZones.find(z => z.id === selectedZone) ?? deliveryZones[0]
@@ -58,14 +88,18 @@ export function Errand() {
 
   const saveList = () => {
     if (!saveListName.trim()) return
-    const entry: SavedList = { name: saveListName.trim(), cart: { ...cart } }
+    const entry: SavedList = { name: saveListName.trim(), cart: { ...cart }, uomSelections: { ...uomSelections } }
     setSavedLists(prev => [entry, ...prev.filter(l => l.name !== entry.name)])
     setSaveListName('')
     setShowSavePanel(false)
     showToast(`"${entry.name}" saved — load it anytime!`)
   }
 
-  const loadList = (list: SavedList) => { setCart(list.cart); showToast(`Loaded "${list.name}"`) }
+  const loadList = (list: SavedList) => { 
+    setCart(list.cart)
+    if (list.uomSelections) setUomSelections(list.uomSelections)
+    showToast(`Loaded "${list.name}"`) 
+  }
   const deleteList = (name: string) => { setSavedLists(prev => prev.filter(l => l.name !== name)) }
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); if (!canSubmit) return; setSubmitted(true) }
@@ -87,10 +121,10 @@ export function Errand() {
           --muted: #7a7060;
           --card: #ffffff;
           --border: #e8e2d4;
-          --radius: 16px;
-          --shadow-sm: 0 2px 8px rgba(45,36,22,.07);
-          --shadow-md: 0 6px 24px rgba(45,36,22,.12);
-          --t: .22s cubic-bezier(.4,0,.2,1);
+          --radius: 14px;
+          --shadow-sm: 0 2px 6px rgba(45,36,22,.07);
+          --shadow-md: 0 6px 20px rgba(45,36,22,.12);
+          --t: .2s cubic-bezier(.4,0,.2,1);
         }
 
         .shop-shell {
@@ -200,28 +234,45 @@ export function Errand() {
           letter-spacing: .04em;
         }
 
-        .product-body { padding: .9rem 1rem 1rem; flex: 1; display: flex; flex-direction: column; gap: .4rem; }
-        .product-body h3 { font-size: .95rem; font-weight: 700; line-height: 1.3; }
-        .product-body p { font-size: .78rem; color: var(--muted); line-height: 1.5; flex: 1; }
+        .product-body { padding: .65rem .75rem .75rem; flex: 1; display: flex; flex-direction: column; gap: .3rem; }
+        .product-body h3 { font-size: .7rem; font-weight: 700; line-height: 1.3; }
+        .product-body p { font-size: .72rem; color: var(--muted); line-height: 1.45; flex: 1; }
+
+        /* UOM selector */
+        .uom-select {
+          width: 100%;
+          padding: .45rem .7rem;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          font-family: 'DM Sans', sans-serif;
+          font-size: .60rem;
+          font-weight: 600;
+          color: var(--olive);
+          background: var(--olive-pale);
+          outline: none;
+          cursor: pointer;
+          transition: border-color var(--t);
+          margin-bottom: .1rem;
+        }
+        .uom-select:focus { border-color: var(--olive); }
 
         .product-footer {
           display: flex; align-items: center; justify-content: space-between;
           margin-top: .6rem;
+          gap: .4rem;
         }
-        .product-price { font-size: 1rem; font-weight: 700; color: var(--olive); }
-        .pack-size { font-size: .72rem; color: var(--muted); margin-top: .1rem; }
 
         .cart-btn-group { display: flex; align-items: center; gap: .4rem; }
         .icon-btn {
-          width: 30px; height: 30px; border-radius: 50%; border: none;
+          width: 26px; height: 26px; border-radius: 50%; border: none;
           background: var(--olive-pale); color: var(--olive);
-          font-size: 1.1rem; font-weight: 700; cursor: pointer;
+          font-size: 1rem; font-weight: 700; cursor: pointer;
           display: flex; align-items: center; justify-content: center;
           transition: background var(--t);
         }
         .icon-btn:hover { background: var(--olive); color: #fff; }
         .add-btn {
-          padding: .45rem 1rem; border-radius: 100px;
+          padding: .35rem .85rem; border-radius: 100px;
           background: var(--olive); color: #fff; border: none;
           font-size: .82rem; font-weight: 600; cursor: pointer;
           font-family: 'DM Sans', sans-serif;
@@ -250,7 +301,7 @@ export function Errand() {
         .cart-count-badge {
           background: var(--tan); color: var(--brown);
           border-radius: 100px; padding: .2rem .65rem;
-          font-size: .8rem; font-weight: 700;
+          font-size: .76rem; font-weight: 700;
         }
 
         .sidebar-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
@@ -373,34 +424,53 @@ export function Errand() {
             {filtered.length === 0 && (
               <p style={{ gridColumn: '1/-1', color: 'var(--muted)', fontSize: '.9rem' }}>No errand items match your search.</p>
             )}
-            {filtered.map(product => (
-              <article key={product.id} className="product-card">
-                <div className="img-wrap">
-                  <img className="product-img" src={product.image} alt={product.name} loading="lazy" />
-                  <span className="cat-badge">{product.category}</span>
-                  {product.errand && <span className="errand-badge">🛵 Errand</span>}
-                </div>
-                <div className="product-body">
-                  <h3>{product.name}</h3>
-                  <p>{product.note}</p>
-                  <div className="product-footer">
-                    <div>
-                      <div className="product-price">₦{product.price.toLocaleString('en-NG')}</div>
-                      <div className="pack-size">{product.packSize}</div>
-                    </div>
-                    {cart[product.id] ? (
-                      <div className="cart-btn-group">
-                        <button className="icon-btn" onClick={() => removeFromCart(product.id)}>−</button>
-                        <span className="qty-badge">{cart[product.id]}</span>
-                        <button className="icon-btn" onClick={() => addToCart(product.id)}>+</button>
-                      </div>
-                    ) : (
-                      <button className="add-btn" onClick={() => addToCart(product.id)}>Add</button>
-                    )}
+            {filtered.map(product => {
+              const hasUom = product.uom && product.uom.length > 0
+              const selectedUomIdx = uomSelections[product.id] ?? 0
+              const inCart = !!cart[product.id]
+
+              return (
+                <article key={product.id} className="product-card">
+                  <div className="img-wrap">
+                    <img className="product-img" src={product.image} alt={product.name} loading="lazy" />
+                    <span className="cat-badge">{product.category}</span>
+                    {product.errand && <span className="errand-badge">🛵 Errand</span>}
                   </div>
-                </div>
-              </article>
-            ))}
+                  <div className="product-body">
+                    <h3>{product.name}</h3>
+
+                    {hasUom && (
+                      <select
+                        className="uom-select"
+                        value={selectedUomIdx}
+                        onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                          const idx = Number(e.target.value)
+                          setUomSelections(prev => ({ ...prev, [product.id]: idx }))
+                        }}
+                      >
+                        {product.uom!.map((opt: UomOption, i: number) => (
+                          <option key={opt.label} value={i}>
+                            {opt.label} — ₦{opt.price.toLocaleString('en-NG')}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    <div className="product-footer">
+                      {inCart ? (
+                        <div className="cart-btn-group">
+                          <button className="icon-btn" onClick={() => removeFromCart(product.id)}>−</button>
+                          <span className="qty-badge">{cart[product.id]}</span>
+                          <button className="icon-btn" onClick={() => addToCart(product.id)}>+</button>
+                        </div>
+                      ) : (
+                        <button className="add-btn" onClick={() => addToCart(product.id)}>Add</button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         </div>
 
@@ -449,7 +519,9 @@ export function Errand() {
                     <div key={item.id} className="cart-item">
                       <div className="cart-item-info">
                         <strong>{item.name}</strong>
-                        <span>₦{item.total.toLocaleString('en-NG')}</span>
+                        <span>
+                          {item.uomLabel ? `${item.uomLabel} · ` : ''}₦{item.total.toLocaleString('en-NG')}
+                        </span>
                       </div>
                       <div className="cart-stepper">
                         <button className="icon-btn" onClick={() => removeFromCart(item.id)}>−</button>
