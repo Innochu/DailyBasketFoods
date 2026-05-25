@@ -1,21 +1,25 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import type { FormEvent, ChangeEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { deliveryZones } from '../data'
-
 import { products } from '../data/products'
 import type { UomOption } from '../data/products'
 
 const STORAGE_KEY = 'dbf_saved_errand_list'
+const ACTIVE_ERRAND_SESSION_KEY = 'dbf_active_errand_session'
 const ACTIVE_SHOP_SESSION_KEY = 'dbf_active_shop_session'
 
 type SavedList = { name: string; cart: Record<number, number>; uomSelections?: Record<number, number> }
 
 export function Errand() {
-  // order mode currently unused in Errand flow; keep as comment for future use
+  const navigate = useNavigate()
   const [errandNote, setErrandNote] = useState('')
-  const [cart, setCart] = useState<Record<number, number>>({})
-  // tracks which UOM option is selected per product (index into product.uom[])
-  const [uomSelections, setUomSelections] = useState<Record<number, number>>({})
+  const [cart, setCart] = useState<Record<number, number>>(() => {
+    try { return JSON.parse(localStorage.getItem(ACTIVE_ERRAND_SESSION_KEY) ?? '{}')?.cart ?? {} } catch { return {} }
+  })
+  const [uomSelections, setUomSelections] = useState<Record<number, number>>(() => {
+    try { return JSON.parse(localStorage.getItem(ACTIVE_ERRAND_SESSION_KEY) ?? '{}')?.uomSelections ?? {} } catch { return {} }
+  })
   const [submitted, setSubmitted] = useState(false)
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
@@ -26,6 +30,11 @@ export function Errand() {
   const [showSavePanel, setShowSavePanel] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
 
+  // Persist errand session
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_ERRAND_SESSION_KEY, JSON.stringify({ cart, uomSelections }))
+  }, [cart, uomSelections])
+
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(savedLists)) }, [savedLists])
 
   const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2800) }
@@ -35,22 +44,45 @@ export function Errand() {
     return ['All', ...Array.from(new Set(errandProducts.map(p => p.category)))];
   }, []);
 
-  // Calculate the value of the active Shop cart session
-  const shopSessionSubtotal = useMemo(() => {
+  // ── Read shop session for combined display ──
+  const [shopSessionData] = useState(() => {
     try {
       const stored = localStorage.getItem(ACTIVE_SHOP_SESSION_KEY);
-      if (!stored) return 0;
-      const { cart: sCart, uomSelections: sUom } = JSON.parse(stored);
-      return Object.entries(sCart as Record<number, number>).reduce((total, [idStr, qty]) => {
+      if (!stored) return { subtotal: 0, selectedZone: deliveryZones[0].id };
+      const { cart: sCart, uomSelections: sUom, selectedZone: sZone } = JSON.parse(stored);
+      
+      const subtotal = Object.entries(sCart as Record<number, number>).reduce((total, [idStr, qty]) => {
         const id = Number(idStr);
         const p = products.find(x => x.id === id);
         if (!p || !p.uom) return total;
-        const idx = sUom[id] ?? 0;
+        const idx = (sUom ?? {})[id] ?? 0;
         const unitPrice = p.uom[idx]?.price ?? 0;
         return total + (qty * unitPrice);
       }, 0);
-    } catch { return 0; }
-  }, []);
+
+      return { subtotal, selectedZone: sZone || deliveryZones[0].id };
+    } catch { return { subtotal: 0, selectedZone: deliveryZones[0].id }; }
+  });
+
+  const [shopItemsForInvoice] = useState(() => {
+    try {
+      const stored = localStorage.getItem(ACTIVE_SHOP_SESSION_KEY);
+      if (!stored) return [];
+      const { cart: sCart, uomSelections: sUom } = JSON.parse(stored);
+      return products.filter(p => sCart[p.id]).map(p => {
+        const qty = sCart[p.id];
+        const idx = (sUom ?? {})[p.id] ?? 0;
+        const unitPrice = p.uom[idx]?.price ?? 0;
+        const uomLabel = p.uom[idx]?.label ?? '';
+        return { name: p.name, quantity: qty, uomLabel, total: qty * unitPrice };
+      });
+    } catch { return []; }
+  });
+
+  const shopSubtotal = shopSessionData.subtotal
+  const selectedZoneDetails = useMemo(() => {
+    return deliveryZones.find(z => z.id === shopSessionData.selectedZone) ?? deliveryZones[0];
+  }, [shopSessionData.selectedZone]);
 
   const filtered = useMemo(() => products.filter(p => {
     if (!p.errand) return false
@@ -60,7 +92,6 @@ export function Errand() {
     return matchCat && matchSearch
   }), [search, activeCategory])
 
-  // Helper to get the label of the selected UOM for a product
   const effectiveUomLabel = useCallback((id: number): string => {
     const p = products.find(x => x.id === id)
     if (!p || !p.uom) return ''
@@ -68,12 +99,9 @@ export function Errand() {
     return p.uom[idx]?.label ?? ''
   }, [uomSelections]);
 
-  // Helper to get the price of the selected UOM for a product
   const getSelectedUomPrice = useCallback((id: number): number => {
     const product = products.find(p => p.id === id);
-    if (!product || !product.uom || product.uom.length === 0) {
-      return 0;
-    }
+    if (!product || !product.uom || product.uom.length === 0) return 0;
     const selectedIdx = uomSelections[id] ?? 0;
     return product.uom[selectedIdx]?.price ?? 0;
   }, [uomSelections]);
@@ -95,13 +123,17 @@ export function Errand() {
       return { ...p, quantity: qty, unitPrice, total: qty * unitPrice, uomLabel: effectiveUomLabel(p.id) };
     });
   }, [cart, getSelectedUomPrice, effectiveUomLabel]);
+
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
-  const subtotal = cartItems.reduce((s, i) => s + i.total, 0)
-  const selectedZoneDetails = deliveryZones[0]
-  const errandDeliveryFee = 1000
-  const totalAmount = subtotal + errandDeliveryFee
-  
-  const isShopMinMet = shopSessionSubtotal > 3000
+  const errandSubtotal = cartItems.reduce((s, i) => s + i.total, 0)
+  const combinedSubtotal = shopSubtotal + errandSubtotal
+
+  const errandTips = 1000
+  const shopDeliveryFee = parseInt(selectedZoneDetails.fee.replace(/[^\d]/g, ''), 10) || 0
+  const totalAmount = combinedSubtotal + errandTips + shopDeliveryFee
+  const deposit = Math.ceil((shopSubtotal + shopDeliveryFee) * 0.5)
+
+  const isShopMinMet = shopSubtotal > 3000
   const canSubmit = (cartCount > 0 || errandNote.trim().length > 0) && isShopMinMet
 
   const saveList = () => {
@@ -110,13 +142,13 @@ export function Errand() {
     setSavedLists(prev => [entry, ...prev.filter(l => l.name !== entry.name)])
     setSaveListName('')
     setShowSavePanel(false)
-    showToast(`"${entry.name}" saved — load it anytime!`)
+    showToast(`"${entry.name}" saved!`)
   }
 
-  const loadList = (list: SavedList) => { 
+  const loadList = (list: SavedList) => {
     setCart(list.cart)
     if (list.uomSelections) setUomSelections(list.uomSelections)
-    showToast(`Loaded "${list.name}"`) 
+    showToast(`Loaded "${list.name}"`)
   }
   const deleteList = (name: string) => { setSavedLists(prev => prev.filter(l => l.name !== name)) }
 
@@ -152,7 +184,6 @@ export function Errand() {
           color: var(--brown);
         }
 
-        /* ── Toast ── */
         .toast {
           position: fixed; top: 1.25rem; right: 1.25rem; z-index: 999;
           background: var(--olive); color: #fff;
@@ -164,7 +195,6 @@ export function Errand() {
         }
         @keyframes slideIn { from { opacity:0; transform:translateY(-12px); } to { opacity:1; transform:translateY(0); } }
 
-        /* ── Layout ── */
         .shop-layout {
           display: grid;
           grid-template-columns: 1fr 360px;
@@ -175,24 +205,25 @@ export function Errand() {
           align-items: start;
         }
 
-        /* ── Catalog column ── */
         .catalog-col { min-width: 0; }
 
         .catalog-header {
-          display: flex;
-          flex-wrap: wrap;
-          align-items: center;
-          justify-content: space-between;
-          gap: 1rem;
-          margin-bottom: 1.5rem;
+          margin-bottom: 1rem;
+        }
+        .back-link {
+          display: inline-flex; align-items: center; gap: .4rem;
+          text-decoration: none; color: var(--olive); font-weight: 600;
+          font-size: .85rem; margin-bottom: .6rem; cursor: pointer;
+        }
+        .catalog-header-main {
+          display: flex; flex-wrap: wrap;
+          align-items: center; justify-content: space-between;
+          gap: 1rem; margin-bottom: 1.5rem;
         }
 
         .catalog-title { font-family: 'Playfair Display', serif; font-size: clamp(1.5rem,3vw,2rem); font-weight: 800; }
 
-        /* search */
-        .search-wrap {
-          position: relative; flex: 1; min-width: 180px; max-width: 320px;
-        }
+        .search-wrap { position: relative; flex: 1; min-width: 180px; max-width: 320px; }
         .search-wrap svg { position: absolute; left: .9rem; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
         .search-input {
           width: 100%; padding: .6rem .9rem .6rem 2.4rem;
@@ -203,7 +234,6 @@ export function Errand() {
         }
         .search-input:focus { border-color: var(--olive); }
 
-        /* category pills */
         .cat-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.5rem; }
         .cat-pill {
           padding: .35rem .9rem; border-radius: 100px; border: 1.5px solid var(--border);
@@ -213,7 +243,6 @@ export function Errand() {
         .cat-pill:hover { border-color: var(--olive-lt); color: var(--olive-lt); }
         .cat-pill.active { background: var(--olive); border-color: var(--olive); color: #fff; }
 
-        /* product grid */
         .product-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -221,18 +250,14 @@ export function Errand() {
         }
 
         .product-card {
-          background: var(--card);
-          border-radius: var(--radius);
-          overflow: hidden;
-          box-shadow: var(--shadow-sm);
-          transition: transform var(--t), box-shadow var(--t);
+          background: var(--card); border-radius: var(--radius); overflow: hidden;
+          box-shadow: var(--shadow-sm); transition: transform var(--t), box-shadow var(--t);
           display: flex; flex-direction: column;
         }
         .product-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
 
         .product-img {
-          width: 100%; aspect-ratio: 4/3;
-          object-fit: cover; display: block;
+          width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;
           transition: transform .4s ease;
         }
         .product-card:hover .product-img { transform: scale(1.05); }
@@ -242,42 +267,29 @@ export function Errand() {
           position: absolute; top: .6rem; left: .6rem;
           background: rgba(255,255,255,.88); backdrop-filter: blur(6px);
           border-radius: 100px; padding: .2rem .65rem;
-          font-size: .7rem; font-weight: 700; color: var(--olive);
-          letter-spacing: .04em;
+          font-size: .7rem; font-weight: 700; color: var(--olive); letter-spacing: .04em;
         }
         .errand-badge {
           position: absolute; top: .6rem; right: .6rem;
           background: #fff3cd; border-radius: 100px; padding: .2rem .55rem;
-          font-size: .65rem; font-weight: 700; color: #7a5c00;
-          letter-spacing: .04em;
+          font-size: .65rem; font-weight: 700; color: #7a5c00; letter-spacing: .04em;
         }
 
         .product-body { padding: .65rem .75rem .75rem; flex: 1; display: flex; flex-direction: column; gap: .3rem; }
         .product-body h3 { font-size: .7rem; font-weight: 700; line-height: 1.3; }
         .product-body p { font-size: .72rem; color: var(--muted); line-height: 1.45; flex: 1; }
 
-        /* UOM selector */
         .uom-select {
-          width: 100%;
-          padding: .45rem .7rem;
-          border: 1px solid var(--border);
-          border-radius: 8px;
-          font-family: 'DM Sans', sans-serif;
-          font-size: .60rem;
-          font-weight: 600;
-          color: var(--olive);
-          background: var(--olive-pale);
-          outline: none;
-          cursor: pointer;
-          transition: border-color var(--t);
-          margin-bottom: .1rem;
+          width: 100%; padding: .45rem .7rem; border: 1px solid var(--border); border-radius: 8px;
+          font-family: 'DM Sans', sans-serif; font-size: .60rem; font-weight: 600;
+          color: var(--olive); background: var(--olive-pale); outline: none;
+          cursor: pointer; transition: border-color var(--t); margin-bottom: .1rem;
         }
         .uom-select:focus { border-color: var(--olive); }
 
         .product-footer {
           display: flex; align-items: center; justify-content: space-between;
-          margin-top: .6rem;
-          gap: .4rem;
+          margin-top: .6rem; gap: .4rem;
         }
 
         .cart-btn-group { display: flex; align-items: center; gap: .4rem; }
@@ -293,29 +305,21 @@ export function Errand() {
           padding: .35rem .85rem; border-radius: 100px;
           background: var(--olive); color: #fff; border: none;
           font-size: .82rem; font-weight: 600; cursor: pointer;
-          font-family: 'DM Sans', sans-serif;
-          transition: background var(--t);
+          font-family: 'DM Sans', sans-serif; transition: background var(--t);
         }
         .add-btn:hover { background: #3a4a22; }
         .qty-badge { font-size: .88rem; font-weight: 700; min-width: 18px; text-align: center; }
 
-        /* ── Sidebar ── */
         .sidebar-col { position: sticky; top: 1.5rem; }
 
-        .sidebar-card {
-          background: var(--card);
-          border-radius: var(--radius);
-          box-shadow: var(--shadow-md);
-          overflow: hidden;
-        }
+        .sidebar-card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow-md); overflow: hidden; }
 
         .sidebar-header {
-          background: #02792e;
-          color: var(--brown);
+          background: #02792e; color: var(--brown);
           padding: 1.1rem 1.25rem;
           display: flex; align-items: center; justify-content: space-between;
         }
-        .sidebar-header h2 { font-family: 'Playfair Display', serif; font-size: 1.15rem; }
+        .sidebar-header h2 { font-family: 'Playfair Display', serif; font-size: 1.15rem; color: #fff; }
         .cart-count-badge {
           background: var(--tan); color: var(--brown);
           border-radius: 100px; padding: .2rem .65rem;
@@ -324,7 +328,6 @@ export function Errand() {
 
         .sidebar-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
 
-        /* saved lists */
         .saved-section { border-bottom: 1.5px solid var(--border); padding-bottom: 1rem; }
         .saved-label { font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: .6rem; }
         .saved-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
@@ -332,20 +335,18 @@ export function Errand() {
           display: flex; align-items: center; gap: .35rem;
           background: var(--olive-pale); border-radius: 100px;
           padding: .3rem .75rem; font-size: .78rem; font-weight: 600; color: var(--olive);
-          cursor: pointer; border: 1.5px solid transparent;
-          transition: all var(--t);
+          cursor: pointer; border: 1.5px solid transparent; transition: all var(--t);
         }
         .saved-chip:hover { border-color: var(--olive); }
         .saved-chip .del { color: var(--muted); font-size: .8rem; margin-left: .15rem; line-height: 1; }
         .saved-chip .del:hover { color: #c0392b; }
         .no-saved { font-size: .8rem; color: var(--muted); }
 
-        /* save panel */
         .save-toggle {
           display: flex; align-items: center; gap: .4rem;
           font-size: .8rem; font-weight: 600; color: var(--olive);
-          cursor: pointer; background: none; border: none; font-family: 'DM Sans', sans-serif;
-          padding: 0; margin-top: .4rem;
+          cursor: pointer; background: none; border: none;
+          font-family: 'DM Sans', sans-serif; padding: 0; margin-top: .4rem;
         }
         .save-panel { display: flex; gap: .5rem; margin-top: .6rem; }
         .save-input {
@@ -359,7 +360,6 @@ export function Errand() {
           font-family: 'DM Sans', sans-serif;
         }
 
-        /* cart list */
         .cart-list { display: flex; flex-direction: column; gap: .6rem; }
         .cart-item {
           display: flex; align-items: center; justify-content: space-between; gap: .5rem;
@@ -372,7 +372,6 @@ export function Errand() {
 
         .empty-state { font-size: .85rem; color: var(--muted); text-align: center; padding: 1rem 0; }
 
-        /* form */
         .order-form { display: flex; flex-direction: column; gap: .75rem; }
         .order-form label { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; font-weight: 600; color: var(--brown); }
         .order-form input, .order-form select, .order-form textarea {
@@ -382,10 +381,26 @@ export function Errand() {
         }
         .order-form input:focus, .order-form select:focus, .order-form textarea:focus { border-color: var(--olive); background: #fff; }
 
-        .charge-box { background: #fdf2e9; border: 1px solid #f5d7b5; border-radius: 10px; padding: .75rem .9rem; display: flex; flex-direction: column; gap: .4rem; }
+        /* ── Charge box ── */
+        .charge-box {
+          background: #fdf2e9; border: 1px solid #f5d7b5; border-radius: 10px;
+          padding: .75rem .9rem; display: flex; flex-direction: column; gap: .4rem;
+        }
         .charge-box > div { display: flex; justify-content: space-between; font-size: .82rem; }
         .charge-box > div span { color: var(--muted); }
         .charge-box > div strong { color: var(--brown); }
+        .charge-section-label {
+          font-size: .64rem; font-weight: 700; letter-spacing: .08em;
+          text-transform: uppercase; color: var(--muted);
+          padding-bottom: .25rem; margin-top: .1rem;
+          border-bottom: 1px dashed #e8d5b7;
+        }
+        .charge-divider { border: none; border-top: 1px solid #f0c9a0; margin: .15rem 0; }
+        .charge-total-row {
+          display: flex; justify-content: space-between;
+          font-size: .84rem; font-weight: 700; color: var(--brown);
+        }
+        .charge-total-row span { color: var(--brown); }
 
         .submit-btn {
           width: 100%; padding: .85rem; background: var(--olive); color: #fff;
@@ -402,7 +417,6 @@ export function Errand() {
         .success-box strong { display: block; font-size: .9rem; color: var(--olive); margin-bottom: .3rem; }
         .success-box p { font-size: .8rem; color: var(--muted); line-height: 1.5; }
 
-        /* ── Responsive ── */
         @media (max-width: 900px) {
           .shop-layout { grid-template-columns: 1fr; }
           .sidebar-col { position: static; }
@@ -423,10 +437,13 @@ export function Errand() {
       <div className="shop-layout">
         <div className="catalog-col">
           <div className="catalog-header">
-            <h2 className="catalog-title">Errand Items</h2>
-            <div className="search-wrap">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input className="search-input" type="search" placeholder="Search errand items…" value={search} onChange={e => setSearch(e.target.value)} />
+            <a className="back-link" onClick={() => navigate('/shop')}>← Back to Shop</a>
+            <div className="catalog-header-main">
+              <h2 className="catalog-title">Errand Items</h2>
+              <div className="search-wrap">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input className="search-input" type="search" placeholder="Search errand items…" value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
             </div>
           </div>
 
@@ -502,7 +519,7 @@ export function Errand() {
               <div className="saved-section">
                 <div className="saved-label">Saved lists</div>
                 {savedLists.length === 0
-                  ? <p className="no-saved">No saved lists yet. Save your current errand cart for quick reorder.</p>
+                  ? <p className="no-saved">No saved lists yet.</p>
                   : (
                     <div className="saved-row">
                       {savedLists.map(list => (
@@ -521,7 +538,7 @@ export function Errand() {
                     </button>
                     {showSavePanel && (
                       <div className="save-panel">
-                        <input className="save-input" placeholder="List name (e.g. Market run)" value={saveListName} onChange={e => setSaveListName(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveList()} />
+                        <input className="save-input" placeholder="List name…" value={saveListName} onChange={e => setSaveListName(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveList()} />
                         <button className="save-confirm" onClick={saveList}>Save</button>
                       </div>
                     )}
@@ -530,7 +547,7 @@ export function Errand() {
               </div>
 
               {cartItems.length === 0 ? (
-                <p className="empty-state">Your errand cart is empty. Add items or load a saved list.</p>
+                <p className="empty-state">Your errand cart is empty.</p>
               ) : (
                 <div className="cart-list">
                   {cartItems.map(item => (
@@ -559,25 +576,40 @@ export function Errand() {
 
                 {!isShopMinMet && (
                   <p style={{ fontSize: '.75rem', color: '#c0392b', fontWeight: 600, background: '#fdf2f2', padding: '.6rem', borderRadius: '8px' }}>
-                    ⚠️ Note: You must have items worth over ₦3,000 in your Shop cart to submit an errand request.
+                    ⚠️ You must have items worth over ₦3,000 in your Shop cart to submit an errand request.
                   </p>
                 )}
 
                 <div className="charge-box">
-                  <div><span>Subtotal</span><strong>₦{subtotal.toLocaleString('en-NG')}</strong></div>
-                  <div><span>Delivery</span><strong>₦{errandDeliveryFee.toLocaleString('en-NG')}</strong></div>
-                  <div><span>Est. time</span><strong>{selectedZoneDetails.eta}</strong></div>
-                  <div style={{ borderTop: '1px solid #f5d7b5', paddingTop: '.4rem', marginTop: '.2rem' }}>
-                    <span>Total Amount</span><strong>₦{totalAmount.toLocaleString('en-NG')}</strong>
+                  <div><span>Shop total</span><strong>₦{shopSubtotal.toLocaleString('en-NG')}</strong></div>
+                  <hr className="charge-divider" />
+                  <div><span>Errand total</span><strong>₦{errandSubtotal.toLocaleString('en-NG')}</strong></div>
+                  
+                  <hr className="charge-divider" />
+                  <div><span>Subtotal</span><strong>₦{combinedSubtotal.toLocaleString('en-NG')}</strong></div>
+
+                  <hr className="charge-divider" />
+                  <div><span>Errand tips</span><strong>₦{errandTips.toLocaleString('en-NG')}</strong></div>
+                  <div><span>Delivery fee</span><strong>₦{shopDeliveryFee.toLocaleString('en-NG')}</strong></div>
+
+                  <hr className="charge-divider" />
+                  <div className="charge-total-row">
+                    <span>Total</span><strong>₦{totalAmount.toLocaleString('en-NG')}</strong>
                   </div>
+
+                  <hr className="charge-divider" />
+                  <div><span>Est. time</span><strong>{selectedZoneDetails.eta}</strong></div>
+
+                  <hr className="charge-divider" />
+                  <div><span>50% deposit(shop total)</span><strong>₦{deposit.toLocaleString('en-NG')}</strong></div>
                 </div>
 
-                <button type="submit" className="submit-btn" disabled={!canSubmit}>Submit</button>
+                <button type="submit" className="submit-btn" disabled={!canSubmit}>View Invoice</button>
 
                 {submitted && (
                   <div className="success-box">
-                    <strong>Thanks — errand order received</strong>
-                    <p>We will confirm availability and final pricing via WhatsApp shortly. Please prepare for the total payment on delivery.</p>
+                    <strong>Order request ready ✓</strong>
+                    <p>We'll confirm via WhatsApp, then collect 50% deposit(shop total) before delivery.</p>
                   </div>
                 )}
               </form>
@@ -585,6 +617,67 @@ export function Errand() {
           </div>
         </aside>
       </div>
+
+      {submitted && (
+        <div className="invoice-overlay">
+          <div className="invoice-paper">
+            <div className="invoice-header">
+              <h1>Daily Basket Foods</h1>
+              <p style={{ fontSize: '.8rem', color: 'var(--muted)' }}>Order Summary · {new Date().toLocaleDateString()}</p>
+            </div>
+            
+            {shopItemsForInvoice.length > 0 && (
+              <div className="invoice-section">
+                <h4>Shop Items</h4>
+                {shopItemsForInvoice.map((item, idx) => (
+                  <div key={idx} className="invoice-row">
+                    <span>{item.quantity} x {item.name} ({item.uomLabel})</span>
+                    <strong>₦{item.total.toLocaleString('en-NG')}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="invoice-section">
+              <h4>Errand Items</h4>
+              {cartItems.map(item => (
+                <div key={item.id} className="invoice-row">
+                  <span>{item.quantity} x {item.name} ({item.uomLabel})</span>
+                  <strong>₦{item.total.toLocaleString('en-NG')}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div className="invoice-section">
+              <h4>Summary & Fees</h4>
+              <div className="invoice-row"><span>Shop Total</span><strong>₦{shopSubtotal.toLocaleString('en-NG')}</strong></div>
+              <div className="invoice-row"><span>Errand Total</span><strong>₦{errandSubtotal.toLocaleString('en-NG')}</strong></div>
+              <div className="invoice-row"><span>Errand Tips</span><strong>₦{errandTips.toLocaleString('en-NG')}</strong></div>
+              <div className="invoice-row"><span>Delivery Fee</span><strong>₦{shopDeliveryFee.toLocaleString('en-NG')}</strong></div>
+              <div className="invoice-row total"><span>Total to Pay</span><strong>₦{totalAmount.toLocaleString('en-NG')}</strong></div>
+              
+              <div className="invoice-row" style={{ marginTop: '1.2rem', color: 'var(--olive)', fontWeight: 700 }}>
+                <span>Payment before delivery</span>
+                <strong>₦{(errandSubtotal + errandTips + deposit).toLocaleString('en-NG')}</strong>
+              </div>
+              <div className="invoice-row" style={{ color: 'var(--olive)', fontWeight: 700 }}>
+                <span>On delivery (Balance)</span>
+                <strong>₦{(totalAmount - (errandSubtotal + errandTips + deposit)).toLocaleString('en-NG')}</strong>
+              </div>
+
+              <div className="calc-breakdown">
+                <strong>How we calculated:</strong><br />
+                Payment before delivery includes 100% of Errand items (₦{errandSubtotal.toLocaleString()}), Errand tips (₦{errandTips.toLocaleString()}), and a 50% deposit on Shop items & Delivery (₦{deposit.toLocaleString()}). 
+                The remaining balance is paid on delivery.
+              </div>
+            </div>
+          </div>
+          <div className="invoice-actions">
+            <button className="close-invoice" onClick={() => setSubmitted(false)}>Close</button>
+            <button className="print-btn" onClick={() => window.print()}>Confirm & Send</button>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
